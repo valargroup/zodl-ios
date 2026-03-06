@@ -92,7 +92,11 @@ let package = Package(
         .library(name: "WhatsNew", targets: ["WhatsNew"]),
         .library(name: "WhatsNewProvider", targets: ["WhatsNewProvider"]),
         .library(name: "ZcashSDKEnvironment", targets: ["ZcashSDKEnvironment"]),
-        .library(name: "ZecKeyboard", targets: ["ZecKeyboard"])
+        .library(name: "ZecKeyboard", targets: ["ZecKeyboard"]),
+        .library(name: "Voting", targets: ["Voting"]),
+        .library(name: "VotingAPIClient", targets: ["VotingAPIClient"]),
+        .library(name: "VotingCryptoClient", targets: ["VotingCryptoClient"]),
+        .library(name: "VotingModels", targets: ["VotingModels"])
     ],
     dependencies: [
         .package(url: "https://github.com/pointfreeco/swift-composable-architecture", from: "1.25.4"),
@@ -107,7 +111,8 @@ let package = Package(
         .package(url: "https://github.com/KeystoneHQ/keystone-sdk-ios/", from: "0.0.1"),
         .package(url: "https://github.com/mgriebling/BigDecimal.git", from: Version(stringLiteral: "2.2.3")),
         .package(url: "https://github.com/siteline/swiftui-introspect", from: "26.0.0"),
-        .package(url: "https://github.com/pointfreeco/swift-navigation", from: "2.5.1")
+        .package(url: "https://github.com/pointfreeco/swift-navigation", from: "2.5.1"),
+        .package(url: "https://github.com/z-cale/librustvoting.git", exact: "0.1.0")
     ],
     targets: [
         .target(
@@ -688,6 +693,7 @@ let package = Package(
                 "WhatsNew",
                 "ZcashSDKEnvironment",
                 "ZecKeyboard",
+                "Voting",
                 .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
                 .product(name: "ZcashLightClientKit", package: "zcash-swift-wallet-sdk")
             ],
@@ -1195,6 +1201,51 @@ let package = Package(
                 .product(name: "ComposableArchitecture", package: "swift-composable-architecture")
             ],
             path: "Sources/Features/ZecKeyboard"
+        ),
+        .target(
+            name: "Voting",
+            dependencies: [
+                "DatabaseFiles",
+                "Generated",
+                "KeystoneHandler",
+                "MnemonicClient",
+                "Models",
+                "Pasteboard",
+                "Scan",
+                "SDKSynchronizer",
+                "UIComponents",
+                "Vendors",
+                "VotingAPIClient",
+                "VotingCryptoClient",
+                "VotingModels",
+                "WalletStorage",
+                "ZcashSDKEnvironment",
+                .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
+                .product(name: "ZcashLightClientKit", package: "zcash-swift-wallet-sdk"),
+            ],
+            path: "Sources/Features/Voting"
+        ),
+        .target(
+            name: "VotingAPIClient",
+            dependencies: [
+                "VotingModels",
+                .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
+            ],
+            path: "Sources/Dependencies/VotingAPIClient"
+        ),
+        .target(
+            name: "VotingCryptoClient",
+            dependencies: [
+                "VotingModels",
+                .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
+                .product(name: "ZcashVotingFFI", package: "librustvoting"),
+            ],
+            path: "Sources/Dependencies/VotingCryptoClient"
+        ),
+        .target(
+            name: "VotingModels",
+            dependencies: [],
+            path: "Sources/Dependencies/VotingModels"
         )
     ]
 )
