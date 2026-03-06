@@ -95,8 +95,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/grpc/grpc-swift.git",
       "state" : {
-        "revision" : "5770e231585cb68388a6ae37ce36c4d8dbd46d90",
-        "version" : "1.27.2"
+        "revision" : "ac715c584bb1e2e5cdfb7684ccb46fab8dafc641",
+        "version" : "1.27.4"
       }
     },
     {
@@ -115,6 +115,15 @@
       "state" : {
         "revision" : "7dbf7476bf6b04b204f79e37f71115574acb3e40",
         "version" : "0.8.6"
+      }
+    },
+    {
+      "identity" : "librustvoting",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/z-cale/librustvoting.git",
+      "state" : {
+        "revision" : "080d1418aa6e03204bfe93a48185f03b4973a46c",
+        "version" : "0.1.0"
       }
     },
     {
@@ -140,8 +149,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/stephencelis/SQLite.swift.git",
       "state" : {
-        "revision" : "0c08856385fe24f7b76d8c51842d78a196e8e817",
-        "version" : "0.15.5"
+        "revision" : "964c300fb0736699ce945c9edb56ecd62eba27a3",
+        "version" : "0.16.0"
       }
     },
     {
@@ -374,8 +383,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-protobuf.git",
       "state" : {
-        "revision" : "9bbb079b69af9d66470ced85461bf13bb40becac",
-        "version" : "1.35.0"
+        "revision" : "86970144a0b86068c81ff48ee29b3f97cae0b879",
+        "version" : "1.36.0"
       }
     },
     {
