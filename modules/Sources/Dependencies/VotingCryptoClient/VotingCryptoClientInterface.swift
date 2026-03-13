@@ -145,6 +145,18 @@ public struct VotingCryptoClient {
     /// Drop the in-memory TreeClient so the next `syncVoteTree` starts fresh.
     /// Recovers from stale state after commitment tree timeout.
     public var resetTreeClient: @Sendable () async throws -> Void
+    /// Persist a pending delegation TX hash so the VAN position can be recovered after interruption.
+    public var persistPendingDelegation: @Sendable (_ record: PendingDelegationRecord) async throws -> Void
+    /// Retrieve all pending delegation records for a round.
+    public var getPendingDelegations: @Sendable (_ roundId: String) async throws -> [PendingDelegationRecord]
+    /// Remove a pending delegation record after the VAN position has been stored.
+    public var clearPendingDelegation: @Sendable (_ roundId: String, _ bundleIndex: UInt32) async throws -> Void
+    /// Persist a committed-but-not-delegated vote record so share delegation can resume after interruption.
+    public var persistCommittedVote: @Sendable (_ record: CommittedVoteRecord) async throws -> Void
+    /// Retrieve all committed vote records for a round.
+    public var getCommittedVotes: @Sendable (_ roundId: String) async throws -> [CommittedVoteRecord]
+    /// Remove a committed vote record after successful share delegation.
+    public var clearCommittedVote: @Sendable (_ roundId: String, _ bundleIndex: UInt32, _ proposalId: UInt32) async throws -> Void
     /// Decompress r_vpk and sign the canonical cast-vote sighash.
     /// Call after `buildVoteCommitment` completes, before `submitVoteCommitment`.
     public var signCastVote: @Sendable (
