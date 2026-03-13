@@ -350,7 +350,7 @@ public struct DelegationAction: Equatable, Sendable {
 
 /// Maps to MsgDelegateVote (zvote/v1/tx.proto).
 /// All fields needed for the on-chain delegation transaction.
-public struct DelegationRegistration: Equatable, Sendable {
+public struct DelegationRegistration: Equatable, Sendable, Codable {
     public let rk: Data // swiftlint:disable:this identifier_name
     public let spendAuthSig: Data
     public let signedNoteNullifier: Data
@@ -698,13 +698,17 @@ public struct PersistedKeystoneSignature: Codable, Equatable, Sendable {
     public let sig: Data
     public let sighash: Data
     public let rk: Data
+    /// Full serialized DelegationRegistration — set after proof completion, used for
+    /// crash recovery so we can resubmit without the Rust DB (which is reinitialized on restart).
+    public var registrationJSON: Data?
 
-    public init(roundId: String, bundleIndex: UInt32, sig: Data, sighash: Data, rk: Data) {
+    public init(roundId: String, bundleIndex: UInt32, sig: Data, sighash: Data, rk: Data, registrationJSON: Data? = nil) {
         self.roundId = roundId
         self.bundleIndex = bundleIndex
         self.sig = sig
         self.sighash = sighash
         self.rk = rk
+        self.registrationJSON = registrationJSON
     }
 }
 

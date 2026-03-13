@@ -1442,16 +1442,22 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                     }
                                 }
 
-                                // Phase 2: saved Keystone signatures (persisted at scan time)
+                                // Phase 2: saved Keystone records with full registration
+                                // The registration is self-contained — no Rust DB needed.
                                 let savedSigs = try await votingCrypto.getKeystoneSigs(roundId)
-                                if !savedSigs.isEmpty {
-                                    logger.info("ZKP1-RECOVERY: Phase 2 — \(savedSigs.count) saved Keystone sig(s)")
+                                let sigsWithRegistration = savedSigs.filter { $0.registrationJSON != nil }
+                                if !sigsWithRegistration.isEmpty {
+                                    logger.info("ZKP1-RECOVERY: Phase 2 — \(sigsWithRegistration.count) saved registration(s)")
                                     var phase2OK = true
-                                    for saved in savedSigs {
+                                    for saved in sigsWithRegistration {
+                                        guard let regJSON = saved.registrationJSON,
+                                              let registration = try? JSONDecoder().decode(DelegationRegistration.self, from: regJSON)
+                                        else {
+                                            logger.error("ZKP1-RECOVERY: Phase 2 failed to decode registration for bundle \(saved.bundleIndex)")
+                                            phase2OK = false
+                                            break
+                                        }
                                         do {
-                                            let registration = try await votingCrypto.getDelegationSubmissionWithKeystoneSig(
-                                                roundId, saved.bundleIndex, saved.sig, saved.sighash
-                                            )
                                             let txResult = try await votingAPI.submitDelegation(registration)
                                             logger.info("ZKP1-RECOVERY: Phase 2 submit OK for bundle \(saved.bundleIndex): \(txResult.txHash)")
 
@@ -1824,14 +1830,18 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                 registration.sighash != sig.sighash {
                                 throw VotingFlowError.invalidDelegationSignature
                             }
-                            logger.debug(
-                                """
-                                Keystone delegation tuple \
-                                rk=\(Data(registration.rk.prefix(8)).hexString) \
-                                sighash=\(Data(sig.sighash.prefix(8)).hexString) \
-                                sig=\(Data(sig.sig.prefix(8)).hexString)
-                                """
-                            )
+
+                            // Persist the full registration before submitting so crash recovery
+                            // can resubmit without the Rust DB (which is reinitialized on restart).
+                            if let regJSON = try? JSONEncoder().encode(registration) {
+                                try? await votingCrypto.persistKeystoneSig(PersistedKeystoneSignature(
+                                    roundId: roundId, bundleIndex: bundleIdx,
+                                    sig: Data(sig.sig), sighash: Data(sig.sighash), rk: Data(sig.rk),
+                                    registrationJSON: regJSON
+                                ))
+                                logger.info("ZKP1-RECOVERY: persisted full registration for bundle \(bundleIdx)")
+                            }
+
                             let delegTxResult = try await votingAPI.submitDelegation(registration)
                             logger.info("Delegation TX \(bundleIdx) submitted: \(delegTxResult.txHash)")
 
