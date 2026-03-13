@@ -563,7 +563,7 @@ private actor PendingDelegationFileStore {
     private func saveAll(_ records: [PendingDelegationRecord]) throws {
         let data = try JSONEncoder().encode(records)
         try data.write(to: fileURL, options: .atomic)
-        logger.debug("ZKP1-RECOVERY: saved \(records.count) record(s) to \(fileURL.lastPathComponent)")
+        logger.debug("ZKP1-RECOVERY: saved \(records.count) record(s) to \(self.fileURL.lastPathComponent)")
     }
 
     func persist(_ record: PendingDelegationRecord) throws {
