@@ -1437,7 +1437,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                             // DB still has original delegation data. Try to resubmit.
                                             logger.info("Attempting resubmit for bundle \(record.bundleIndex) using saved Keystone sig")
                                             let registration = try await votingCrypto.getDelegationSubmissionWithKeystoneSig(
-                                                roundId, record.bundleIndex, [UInt8](sig), [UInt8](sighash)
+                                                roundId, record.bundleIndex, sig, sighash
                                             )
                                             do {
                                                 let txResult = try await votingAPI.submitDelegation(registration)
