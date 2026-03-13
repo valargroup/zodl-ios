@@ -1962,6 +1962,11 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 state.isDelegationProofInFlight = false
                 state.currentKeystoneBundleIndex = 0
                 state.keystoneBundleSignatures = []
+                state.keystoneSigningStatus = .idle
+                state.pendingUnsignedDelegationPczt = nil
+                if state.isKeystoneUser {
+                    state.screenStack = [.proposalList]
+                }
                 return .none
 
             case .delegationProofFailed(let error):
