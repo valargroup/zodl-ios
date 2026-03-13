@@ -1394,6 +1394,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                             let hotkeyPhrase = try walletStorage.exportVotingHotkey().seedPhrase.value()
                             let hotkeySeed = try mnemonic.toSeed(hotkeyPhrase)
                             if isKeystoneUser {
+                                logger.info("ZKP1-RECOVERY: startDelegationProof entered for Keystone, bundleCount=\(bundleCount), keystoneBundleIndex=\(keystoneBundleIndex)")
                                 guard bundleCount > 0 else {
                                     await backgroundTask.endTask(bgTaskId)
                                     await send(.delegationProofCompleted)
@@ -1406,6 +1407,10 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                 // buildGovernancePczt would overwrite the DB data that the on-chain TX
                                 // references, making any later VAN witness/vote proof invalid.
                                 let pendingDelegations = try await votingCrypto.getPendingDelegations(roundId)
+                                logger.info("ZKP1-RECOVERY: checked pending delegations for round \(roundId), found \(pendingDelegations.count) record(s)")
+                                for pd in pendingDelegations {
+                                    logger.info("ZKP1-RECOVERY: record bundle=\(pd.bundleIndex) hash='\(pd.txHash)' hasSig=\(pd.keystoneSig != nil)")
+                                }
                                 if !pendingDelegations.isEmpty {
                                     logger.info("Found \(pendingDelegations.count) pending delegation(s), recovering before Keystone PCZT build")
                                     var allRecovered = true
@@ -1843,10 +1848,12 @@ public struct Voting { // swiftlint:disable:this type_body_length
                             )
                             // Persist BEFORE submit so a crash between submit and persist
                             // doesn't lose the Keystone signature needed for resubmission.
+                            logger.info("ZKP1-RECOVERY: persisting pre-submit record for bundle \(bundleIdx) round \(roundId)")
                             try await votingCrypto.persistPendingDelegation(PendingDelegationRecord(
                                 roundId: roundId, bundleIndex: bundleIdx, txHash: "",
                                 keystoneSig: Data(sig.sig), keystoneSighash: Data(sig.sighash)
                             ))
+                            logger.info("ZKP1-RECOVERY: pre-submit record persisted for bundle \(bundleIdx)")
 
                             let delegTxResult = try await votingAPI.submitDelegation(registration)
                             logger.info("Delegation TX \(bundleIdx) submitted: \(delegTxResult.txHash)")

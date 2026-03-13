@@ -1,8 +1,11 @@
 import Combine
 import ComposableArchitecture
 import Foundation
+import os
 import VotingModels
 import ZcashLightClientKit
+
+private let logger = Logger(subsystem: "co.zodl.voting", category: "VotingCryptoClient")
 
 // MARK: - Live key
 
@@ -543,15 +546,24 @@ private actor PendingDelegationFileStore {
     }()
 
     private func loadAll() throws -> [PendingDelegationRecord] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            logger.debug("ZKP1-RECOVERY: pending_delegations.json does not exist")
+            return []
+        }
         let data = try Data(contentsOf: fileURL)
-        guard !data.isEmpty else { return [] }
-        return try JSONDecoder().decode([PendingDelegationRecord].self, from: data)
+        guard !data.isEmpty else {
+            logger.debug("ZKP1-RECOVERY: pending_delegations.json is empty")
+            return []
+        }
+        let records = try JSONDecoder().decode([PendingDelegationRecord].self, from: data)
+        logger.debug("ZKP1-RECOVERY: loaded \(records.count) record(s) from pending_delegations.json")
+        return records
     }
 
     private func saveAll(_ records: [PendingDelegationRecord]) throws {
         let data = try JSONEncoder().encode(records)
         try data.write(to: fileURL, options: .atomic)
+        logger.debug("ZKP1-RECOVERY: saved \(records.count) record(s) to \(fileURL.lastPathComponent)")
     }
 
     func persist(_ record: PendingDelegationRecord) throws {
