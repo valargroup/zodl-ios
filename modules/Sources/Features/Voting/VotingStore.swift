@@ -1453,6 +1453,15 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                         try await Task.sleep(for: .seconds(2))
                                     } while Date() < recoveryDeadline
 
+                                    if let rc = recoveryConfirmation {
+                                        let evTypes = rc.events.map(\.type)
+                                        let delegEvent = rc.event(ofType: "delegate_vote")
+                                        let leafAttr = delegEvent?.attribute(forKey: "leaf_index")
+                                        logger.info("Recovery TX confirmed: code=\(rc.code) eventTypes=\(evTypes) delegate_vote=\(delegEvent != nil) leaf_index=\(leafAttr ?? "nil")")
+                                    } else {
+                                        logger.error("Recovery TX poll timed out for \(pendingDeleg.txHash)")
+                                    }
+
                                     guard let recoveryConfirmation, recoveryConfirmation.code == 0,
                                           let leafValue = recoveryConfirmation.event(ofType: "delegate_vote")?.attribute(forKey: "leaf_index"),
                                           let vanPosition = UInt32(leafValue)
@@ -1684,6 +1693,15 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                     if recoveryConfirmation != nil { break }
                                     try await Task.sleep(for: .seconds(2))
                                 } while Date() < recoveryDeadline
+
+                                if let rc = recoveryConfirmation {
+                                    let evTypes = rc.events.map(\.type)
+                                    let delegEvent = rc.event(ofType: "delegate_vote")
+                                    let leafAttr = delegEvent?.attribute(forKey: "leaf_index")
+                                    logger.info("Recovery TX confirmed: code=\(rc.code) eventTypes=\(evTypes) delegate_vote=\(delegEvent != nil) leaf_index=\(leafAttr ?? "nil")")
+                                } else {
+                                    logger.error("Recovery TX poll timed out for \(pendingDeleg.txHash)")
+                                }
 
                                 guard let recoveryConfirmation, recoveryConfirmation.code == 0,
                                       let leafValue = recoveryConfirmation.event(ofType: "delegate_vote")?.attribute(forKey: "leaf_index"),

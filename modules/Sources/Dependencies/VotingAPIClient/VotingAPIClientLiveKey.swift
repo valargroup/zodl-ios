@@ -1,6 +1,9 @@
 import ComposableArchitecture
 import Foundation
+import os
 import VotingModels
+
+private let logger = Logger(subsystem: "co.zodl", category: "VotingAPIClient")
 
 // MARK: - API Configuration
 
@@ -538,47 +541,42 @@ extension VotingAPIClient: DependencyKey {
             },
             fetchTxConfirmation: { txHash in
                 let base = await SvAPIConfigStore.shared.baseURL
-                guard let url = URL(string: "\(base)/cosmos/tx/v1beta1/txs/\(txHash)") else { return nil }
+                guard let url = URL(string: "\(base)/shielded-vote/v1/tx/\(txHash)") else { return nil }
 
                 let data: Data
                 let response: URLResponse
                 do {
                     (data, response) = try await httpSession.data(from: url)
                 } catch {
+                    logger.debug("fetchTxConfirmation: network error for \(txHash) — \(error)")
                     return nil
                 }
-                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let txResponse = json["tx_response"] as? [String: Any]
-                else { return nil }
 
-                let height = parseUInt64(txResponse["height"])
-                let code = parseUInt32(txResponse["code"])
-                let log = txResponse["raw_log"] as? String ?? ""
+                guard let http = response as? HTTPURLResponse else { return nil }
+
+                if http.statusCode == 404 || http.statusCode == 422 {
+                    logger.debug("fetchTxConfirmation: \(http.statusCode) (not yet in block) for \(txHash)")
+                    return nil
+                }
+
+                guard http.statusCode == 200 else {
+                    let body = String(data: data, encoding: .utf8) ?? "<binary>"
+                    logger.error("fetchTxConfirmation: HTTP \(http.statusCode) for \(txHash) — \(body)")
+                    return nil
+                }
+
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    logger.error("fetchTxConfirmation: JSON parse failed for \(txHash)")
+                    return nil
+                }
+
+                let height = parseUInt64(json["height"])
+                let code = parseUInt32(json["code"])
+                let log = json["raw_log"] as? String ?? ""
 
                 var parsedEvents: [TxEvent] = []
 
-                // Prefer tx_response.logs[].events — per-message events with plain-string keys.
-                if let logs = txResponse["logs"] as? [[String: Any]] {
-                    for entry in logs {
-                        guard let events = entry["events"] as? [[String: Any]] else { continue }
-                        for event in events {
-                            guard let evType = event["type"] as? String,
-                                  let attrs = event["attributes"] as? [[String: Any]]
-                            else { continue }
-                            let parsed = attrs.compactMap { attr -> TxEventAttribute? in
-                                guard let key = attr["key"] as? String,
-                                      let value = attr["value"] as? String
-                                else { return nil }
-                                return TxEventAttribute(key: key, value: value)
-                            }
-                            parsedEvents.append(TxEvent(type: evType, attributes: parsed))
-                        }
-                    }
-                }
-
-                // Fallback: tx_response.events (TX-level ABCI events).
-                if parsedEvents.isEmpty, let events = txResponse["events"] as? [[String: Any]] {
+                if let events = json["events"] as? [[String: Any]] {
                     for event in events {
                         guard let evType = event["type"] as? String,
                               let attrs = event["attributes"] as? [[String: Any]]
@@ -592,6 +590,8 @@ extension VotingAPIClient: DependencyKey {
                         parsedEvents.append(TxEvent(type: evType, attributes: parsed))
                     }
                 }
+
+                logger.debug("fetchTxConfirmation: \(txHash) code=\(code) events=\(parsedEvents.count) types=\(parsedEvents.map(\.type))")
 
                 return TxConfirmation(height: height, code: code, log: log, events: parsedEvents)
             }
