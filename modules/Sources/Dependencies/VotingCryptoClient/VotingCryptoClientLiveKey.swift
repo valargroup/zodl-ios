@@ -10,6 +10,8 @@ extension VotingCryptoClient: DependencyKey {
     public static var liveValue: Self {
         let dbActor = DatabaseActor()
         let stateSubject = CurrentValueSubject<VotingDbState, Never>(.initial)
+        let pendingDelegationStore = PendingDelegationFileStore()
+        let committedStore = CommittedVoteFileStore()
 
         /// Query rounds + votes tables and publish combined state.
         func publishState(backend: VotingRustBackend, roundId: String) {
@@ -464,6 +466,24 @@ extension VotingCryptoClient: DependencyKey {
                 let backend = try await dbActor.backend()
                 try backend.resetTreeClient()
             },
+            persistPendingDelegation: { record in
+                try await pendingDelegationStore.persist(record)
+            },
+            getPendingDelegations: { roundId in
+                try await pendingDelegationStore.records(for: roundId)
+            },
+            clearPendingDelegation: { roundId, bundleIndex in
+                try await pendingDelegationStore.clear(roundId: roundId, bundleIndex: bundleIndex)
+            },
+            persistCommittedVote: { record in
+                try await committedStore.persist(record)
+            },
+            getCommittedVotes: { roundId in
+                try await committedStore.records(for: roundId)
+            },
+            clearCommittedVote: { roundId, bundleIndex, proposalId in
+                try await committedStore.clear(roundId: roundId, bundleIndex: bundleIndex, proposalId: proposalId)
+            },
             signCastVote: { hotkeySeed, networkId, bundle in
                 let sig = try VotingRustBackend.signCastVote(
                     hotkeySeed: hotkeySeed,
@@ -511,6 +531,84 @@ private actor DatabaseActor {
             throw VotingCryptoError.databaseNotOpen
         }
         return _backend
+    }
+}
+
+// MARK: - PendingDelegationFileStore
+
+private actor PendingDelegationFileStore {
+    private let fileURL: URL = {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return docs.appendingPathComponent("pending_delegations.json")
+    }()
+
+    private func loadAll() throws -> [PendingDelegationRecord] {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        let data = try Data(contentsOf: fileURL)
+        guard !data.isEmpty else { return [] }
+        return try JSONDecoder().decode([PendingDelegationRecord].self, from: data)
+    }
+
+    private func saveAll(_ records: [PendingDelegationRecord]) throws {
+        let data = try JSONEncoder().encode(records)
+        try data.write(to: fileURL, options: .atomic)
+    }
+
+    func persist(_ record: PendingDelegationRecord) throws {
+        var all = (try? loadAll()) ?? []
+        all.removeAll { $0.roundId == record.roundId && $0.bundleIndex == record.bundleIndex }
+        all.append(record)
+        try saveAll(all)
+    }
+
+    func records(for roundId: String) throws -> [PendingDelegationRecord] {
+        try loadAll().filter { $0.roundId == roundId }
+    }
+
+    func clear(roundId: String, bundleIndex: UInt32) throws {
+        var all = (try? loadAll()) ?? []
+        all.removeAll { $0.roundId == roundId && $0.bundleIndex == bundleIndex }
+        try saveAll(all)
+    }
+}
+
+// MARK: - CommittedVoteFileStore
+
+/// Thread-safe file-backed store for committed-but-not-delegated vote records.
+/// Writes to `committed_votes.json` in the app's documents directory.
+private actor CommittedVoteFileStore {
+    private let fileURL: URL = {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return docs.appendingPathComponent("committed_votes.json")
+    }()
+
+    private func loadAll() throws -> [CommittedVoteRecord] {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        let data = try Data(contentsOf: fileURL)
+        guard !data.isEmpty else { return [] }
+        return try JSONDecoder().decode([CommittedVoteRecord].self, from: data)
+    }
+
+    private func saveAll(_ records: [CommittedVoteRecord]) throws {
+        let data = try JSONEncoder().encode(records)
+        try data.write(to: fileURL, options: .atomic)
+    }
+
+    func persist(_ record: CommittedVoteRecord) throws {
+        var all = (try? loadAll()) ?? []
+        all.removeAll { $0.roundId == record.roundId && $0.bundleIndex == record.bundleIndex && $0.proposalId == record.proposalId }
+        all.append(record)
+        try saveAll(all)
+    }
+
+    func records(for roundId: String) throws -> [CommittedVoteRecord] {
+        try loadAll().filter { $0.roundId == roundId }
+    }
+
+    func clear(roundId: String, bundleIndex: UInt32, proposalId: UInt32) throws {
+        var all = (try? loadAll()) ?? []
+        all.removeAll { $0.roundId == roundId && $0.bundleIndex == bundleIndex && $0.proposalId == proposalId }
+        try saveAll(all)
     }
 }
 

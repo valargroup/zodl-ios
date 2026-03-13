@@ -386,7 +386,7 @@ public struct DelegationRegistration: Equatable, Sendable {
 
 // MARK: - Voting
 
-public struct EncryptedShare: Equatable, Sendable {
+public struct EncryptedShare: Equatable, Sendable, Codable {
     public let c1: Data // swiftlint:disable:this identifier_name
     public let c2: Data // swiftlint:disable:this identifier_name
     public let shareIndex: UInt32
@@ -405,7 +405,7 @@ public struct EncryptedShare: Equatable, Sendable {
 }
 
 /// Maps to MsgCastVote (zvote/v1/tx.proto).
-public struct VoteCommitmentBundle: Equatable, Sendable {
+public struct VoteCommitmentBundle: Equatable, Sendable, Codable {
     public let vanNullifier: Data
     public let voteAuthorityNoteNew: Data
     public let voteCommitment: Data
@@ -688,4 +688,46 @@ public enum ProofEvent: Equatable, Sendable {
 public enum VoteCommitmentBuildEvent: Equatable, Sendable {
     case progress(Double)
     case completed(VoteCommitmentBundle)
+}
+
+/// Persisted record of a delegation TX that has been submitted to chain but
+/// whose VAN leaf position has not yet been stored locally.
+/// Used to recover the VAN position after app interruption during ZKP1.
+public struct PendingDelegationRecord: Codable, Equatable, Sendable {
+    public let roundId: String
+    public let bundleIndex: UInt32
+    public let txHash: String
+
+    public init(roundId: String, bundleIndex: UInt32, txHash: String) {
+        self.roundId = roundId
+        self.bundleIndex = bundleIndex
+        self.txHash = txHash
+    }
+}
+
+/// Persisted record of a vote commitment that has been submitted to chain but
+/// whose encrypted shares have not yet been delegated to helper servers.
+/// Used to resume the share-delegation step after app interruption.
+public struct CommittedVoteRecord: Codable, Equatable, Sendable {
+    public let roundId: String
+    public let bundleIndex: UInt32
+    public let proposalId: UInt32
+    public let choice: UInt32
+    public let numOptions: UInt32
+    public let txHash: String
+    public let bundle: VoteCommitmentBundle
+
+    public init(
+        roundId: String, bundleIndex: UInt32, proposalId: UInt32,
+        choice: UInt32, numOptions: UInt32, txHash: String,
+        bundle: VoteCommitmentBundle
+    ) {
+        self.roundId = roundId
+        self.bundleIndex = bundleIndex
+        self.proposalId = proposalId
+        self.choice = choice
+        self.numOptions = numOptions
+        self.txHash = txHash
+        self.bundle = bundle
+    }
 }

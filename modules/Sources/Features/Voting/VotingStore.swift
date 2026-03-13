@@ -490,6 +490,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
         // Round resume check (skip delegation screen if already authorized)
         case roundResumeChecked(alreadyAuthorized: Bool)
         case bundleCountRestored(UInt32)
+        case resumeCommittedVotes
 
         // Delegation signing
         case copyHotkeyAddress
@@ -1166,7 +1167,106 @@ public struct Voting { // swiftlint:disable:this type_body_length
 
             case .bundleCountRestored(let count):
                 state.bundleCount = count
-                return .none
+                let roundId = state.roundId
+                return .run { [votingAPI, votingCrypto] send in
+                    let pendingDelegations = try await votingCrypto.getPendingDelegations(roundId)
+                    for record in pendingDelegations {
+                        logger.info("Recovering pending delegation for bundle \(record.bundleIndex)")
+                        let deadline = Date().addingTimeInterval(90)
+                        var confirmation: TxConfirmation?
+                        repeat {
+                            confirmation = try? await votingAPI.fetchTxConfirmation(record.txHash)
+                            if confirmation != nil { break }
+                            try await Task.sleep(for: .seconds(2))
+                        } while Date() < deadline
+
+                        guard let confirmation, confirmation.code == 0,
+                              let leafValue = confirmation.event(ofType: "delegate_vote")?.attribute(forKey: "leaf_index"),
+                              let vanPosition = UInt32(leafValue)
+                        else {
+                            logger.error("Pending delegation TX \(record.txHash) not confirmed, skipping")
+                            continue
+                        }
+                        try await votingCrypto.storeVanPosition(roundId, record.bundleIndex, vanPosition)
+                        try? await votingCrypto.clearPendingDelegation(roundId, record.bundleIndex)
+                        logger.info("Delegation recovery complete for bundle \(record.bundleIndex): VAN \(vanPosition)")
+                    }
+
+                    let committed = try await votingCrypto.getCommittedVotes(roundId)
+                    if !committed.isEmpty {
+                        await send(.resumeCommittedVotes)
+                    }
+                } catch: { _, _ in }
+
+            case .resumeCommittedVotes:
+                guard !state.isSubmittingVote else { return .none }
+                state.isSubmittingVote = true
+                state.voteSubmissionStep = .sendingShares
+                let roundId = state.roundId
+                return .run { [backgroundTask, votingAPI, votingCrypto] send in
+                    let bgTaskId = await backgroundTask.beginTask("Vote recovery")
+                    do {
+                        let committed = try await votingCrypto.getCommittedVotes(roundId)
+                        for record in committed {
+                            logger.info("Resuming committed vote for bundle \(record.bundleIndex), proposal \(record.proposalId)")
+
+                            let txDeadline = Date().addingTimeInterval(90)
+                            var resumeConfirmation: TxConfirmation?
+                            repeat {
+                                resumeConfirmation = try? await votingAPI.fetchTxConfirmation(record.txHash)
+                                if resumeConfirmation != nil { break }
+                                try await Task.sleep(for: .seconds(2))
+                            } while Date() < txDeadline
+
+                            guard let resumeConfirmation, resumeConfirmation.code == 0,
+                                  let resumeLeafPair = resumeConfirmation.event(ofType: "cast_vote")?.attribute(forKey: "leaf_index")
+                            else {
+                                logger.error("TX \(record.txHash) not confirmed after 90s, skipping resume")
+                                continue
+                            }
+                            let resumeParts = resumeLeafPair.split(separator: ",")
+                            guard resumeParts.count == 2,
+                                  let resumeVanIdx = UInt64(resumeParts[0]),
+                                  let resumeVcIdx = UInt64(resumeParts[1])
+                            else { continue }
+
+                            let newVanPosition = UInt32(resumeVanIdx)
+                            let vcTreePosition = resumeVcIdx
+                            try await votingCrypto.storeVanPosition(roundId, record.bundleIndex, newVanPosition)
+
+                            let choice = VoteChoice.option(record.choice)
+                            let payloads = try await votingCrypto.buildSharePayloads(
+                                record.bundle.encShares, record.bundle, choice, record.numOptions, vcTreePosition
+                            )
+                            var lastShareError: Error?
+                            for attempt in 1...3 {
+                                do {
+                                    try await votingAPI.delegateShares(payloads, roundId)
+                                    lastShareError = nil
+                                    break
+                                } catch {
+                                    lastShareError = error
+                                    logger.warning("Resume delegateShares attempt \(attempt)/3 failed: \(error)")
+                                    if attempt < 3 { try await Task.sleep(for: .seconds(2)) }
+                                }
+                            }
+                            if let lastShareError { throw lastShareError }
+
+                            try await votingCrypto.markVoteSubmitted(roundId, record.bundleIndex, record.proposalId)
+                            try? await votingCrypto.clearCommittedVote(roundId, record.bundleIndex, record.proposalId)
+                            logger.info("Resume completed for bundle \(record.bundleIndex)")
+                        }
+
+                        await send(.advanceAfterVote)
+                    } catch {
+                        await backgroundTask.endTask(bgTaskId)
+                        throw error
+                    }
+                    await backgroundTask.endTask(bgTaskId)
+                } catch: { error, send in
+                    logger.error("Resume committed votes failed: \(error)")
+                    await send(.voteSubmissionFailed(proposalId: 0, error: error.localizedDescription))
+                }
 
             // MARK: - DB State Stream
 
@@ -1340,6 +1440,31 @@ public struct Voting { // swiftlint:disable:this type_body_length
                             let bundleCount = UInt32(noteChunks.count)
 
                             for bundleIndex: UInt32 in 0..<bundleCount {
+                                // Recover if a previous run submitted the delegation TX but crashed
+                                // before storing the VAN position.
+                                if let pendingDeleg = try await votingCrypto.getPendingDelegations(roundId)
+                                    .first(where: { $0.bundleIndex == bundleIndex }) {
+                                    logger.info("Recovering pending delegation for bundle \(bundleIndex)")
+                                    let recoveryDeadline = Date().addingTimeInterval(90)
+                                    var recoveryConfirmation: TxConfirmation?
+                                    repeat {
+                                        recoveryConfirmation = try? await votingAPI.fetchTxConfirmation(pendingDeleg.txHash)
+                                        if recoveryConfirmation != nil { break }
+                                        try await Task.sleep(for: .seconds(2))
+                                    } while Date() < recoveryDeadline
+
+                                    guard let recoveryConfirmation, recoveryConfirmation.code == 0,
+                                          let leafValue = recoveryConfirmation.event(ofType: "delegate_vote")?.attribute(forKey: "leaf_index"),
+                                          let vanPosition = UInt32(leafValue)
+                                    else {
+                                        throw VotingFlowError.delegationTxFailed(code: recoveryConfirmation?.code ?? 0)
+                                    }
+                                    try await votingCrypto.storeVanPosition(roundId, bundleIndex, vanPosition)
+                                    try? await votingCrypto.clearPendingDelegation(roundId, bundleIndex)
+                                    logger.info("Delegation recovery complete for bundle \(bundleIndex): VAN \(vanPosition)")
+                                    continue
+                                }
+
                                 let bundleNotes = noteChunks[Int(bundleIndex)]
                                 logger.info("Delegation bundle \(bundleIndex + 1)/\(bundleCount) (\(bundleNotes.count) notes)")
 
@@ -1387,6 +1512,10 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                 let delegTxResult = try await votingAPI.submitDelegation(registration)
                                 logger.info("Delegation TX \(bundleIndex) submitted: \(delegTxResult.txHash)")
 
+                                try await votingCrypto.persistPendingDelegation(PendingDelegationRecord(
+                                    roundId: roundId, bundleIndex: bundleIndex, txHash: delegTxResult.txHash
+                                ))
+
                                 // Poll until the TX lands, then extract the VAN leaf index
                                 // from the delegate_vote event rather than inferring from tree growth.
                                 let delegDeadline = Date().addingTimeInterval(90)
@@ -1406,6 +1535,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                     )
                                 }
                                 try await votingCrypto.storeVanPosition(roundId, bundleIndex, vanPosition)
+                                try? await votingCrypto.clearPendingDelegation(roundId, bundleIndex)
                                 logger.debug("VAN position stored for bundle \(bundleIndex): \(vanPosition)")
                             }
 
@@ -1540,8 +1670,34 @@ public struct Voting { // swiftlint:disable:this type_body_length
                         let noteChunks = cachedNotes.smartBundles().bundles
 
                         for (bundleIndex, sig) in storedSignatures.enumerated() {
-                            let bundleNotes = noteChunks[bundleIndex]
                             let bundleIdx = UInt32(bundleIndex)
+
+                            // Recover if a previous run submitted the delegation TX but crashed
+                            // before storing the VAN position.
+                            if let pendingDeleg = try await votingCrypto.getPendingDelegations(roundId)
+                                .first(where: { $0.bundleIndex == bundleIdx }) {
+                                logger.info("Recovering pending delegation for bundle \(bundleIdx)")
+                                let recoveryDeadline = Date().addingTimeInterval(90)
+                                var recoveryConfirmation: TxConfirmation?
+                                repeat {
+                                    recoveryConfirmation = try? await votingAPI.fetchTxConfirmation(pendingDeleg.txHash)
+                                    if recoveryConfirmation != nil { break }
+                                    try await Task.sleep(for: .seconds(2))
+                                } while Date() < recoveryDeadline
+
+                                guard let recoveryConfirmation, recoveryConfirmation.code == 0,
+                                      let leafValue = recoveryConfirmation.event(ofType: "delegate_vote")?.attribute(forKey: "leaf_index"),
+                                      let vanPosition = UInt32(leafValue)
+                                else {
+                                    throw VotingFlowError.delegationTxFailed(code: recoveryConfirmation?.code ?? 0)
+                                }
+                                try await votingCrypto.storeVanPosition(roundId, bundleIdx, vanPosition)
+                                try? await votingCrypto.clearPendingDelegation(roundId, bundleIdx)
+                                logger.info("Delegation recovery complete for bundle \(bundleIdx): VAN \(vanPosition)")
+                                continue
+                            }
+
+                            let bundleNotes = noteChunks[bundleIndex]
                             logger.info("Keystone batch: proving bundle \(bundleIndex + 1)/\(signedCount)")
 
                             // buildGovernancePczt already stored the delegation data — just prove.
@@ -1585,6 +1741,10 @@ public struct Voting { // swiftlint:disable:this type_body_length
                             let delegTxResult = try await votingAPI.submitDelegation(registration)
                             logger.info("Delegation TX \(bundleIdx) submitted: \(delegTxResult.txHash)")
 
+                            try await votingCrypto.persistPendingDelegation(PendingDelegationRecord(
+                                roundId: roundId, bundleIndex: bundleIdx, txHash: delegTxResult.txHash
+                            ))
+
                             let delegDeadline = Date().addingTimeInterval(90)
                             var delegConfirmation: TxConfirmation?
                             repeat {
@@ -1602,6 +1762,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                 )
                             }
                             try await votingCrypto.storeVanPosition(roundId, bundleIdx, vanPosition)
+                            try? await votingCrypto.clearPendingDelegation(roundId, bundleIdx)
                             logger.debug("VAN position stored for bundle \(bundleIdx): \(vanPosition)")
                         }
 
@@ -1759,6 +1920,62 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                 logger.debug("Vote bundle \(bundleIndex + 1)/\(bundleCount) already submitted, skipping")
                                 continue
                             }
+
+                            // Inline recovery: if this bundle was committed but shares never delegated,
+                            // resume share delegation directly instead of rebuilding the ZKP.
+                            if let committed = try await votingCrypto.getCommittedVotes(roundId)
+                                .first(where: { $0.bundleIndex == bundleIndex && $0.proposalId == proposalId }) {
+                                logger.info("Resuming interrupted vote for bundle \(bundleIndex + 1)/\(bundleCount)")
+                                await send(.voteSubmissionBundleStarted(bundleIndex))
+                                await send(.voteSubmissionStepUpdated(.confirming))
+
+                                let inlineDeadline = Date().addingTimeInterval(90)
+                                var inlineConfirmation: TxConfirmation?
+                                repeat {
+                                    inlineConfirmation = try? await votingAPI.fetchTxConfirmation(committed.txHash)
+                                    if inlineConfirmation != nil { break }
+                                    try await Task.sleep(for: .seconds(2))
+                                } while Date() < inlineDeadline
+
+                                guard let inlineConfirmation, inlineConfirmation.code == 0,
+                                      let inlineLeafPair = inlineConfirmation.event(ofType: "cast_vote")?.attribute(forKey: "leaf_index")
+                                else {
+                                    throw VotingFlowError.voteCommitmentTxFailed(code: 0)
+                                }
+                                let inlineParts = inlineLeafPair.split(separator: ",")
+                                guard inlineParts.count == 2,
+                                      let inlineVanIdx = UInt64(inlineParts[0]),
+                                      let inlineVcIdx = UInt64(inlineParts[1])
+                                else {
+                                    throw VotingFlowError.voteCommitmentTxFailed(code: 0)
+                                }
+
+                                try await votingCrypto.storeVanPosition(roundId, bundleIndex, UInt32(inlineVanIdx))
+
+                                await send(.voteSubmissionStepUpdated(.sendingShares))
+                                let recoveryPayloads = try await votingCrypto.buildSharePayloads(
+                                    committed.bundle.encShares, committed.bundle,
+                                    choice, numOptions, inlineVcIdx
+                                )
+                                var lastRecoveryError: Error?
+                                for attempt in 1...3 {
+                                    do {
+                                        try await votingAPI.delegateShares(recoveryPayloads, roundId)
+                                        lastRecoveryError = nil
+                                        break
+                                    } catch {
+                                        lastRecoveryError = error
+                                        logger.warning("Recovery delegateShares attempt \(attempt)/3 failed: \(error)")
+                                        if attempt < 3 { try await Task.sleep(for: .seconds(2)) }
+                                    }
+                                }
+                                if let lastRecoveryError { throw lastRecoveryError }
+
+                                try await votingCrypto.markVoteSubmitted(roundId, bundleIndex, proposalId)
+                                try? await votingCrypto.clearCommittedVote(roundId, bundleIndex, proposalId)
+                                continue
+                            }
+
                             logger.info("Vote bundle \(bundleIndex + 1)/\(bundleCount) for proposal \(proposalId)")
 
                             // Update progress per-bundle so the UI shows which bundle is being processed
@@ -1805,6 +2022,12 @@ public struct Voting { // swiftlint:disable:this type_body_length
                             let txResult = try await votingAPI.submitVoteCommitment(builtBundle, castVoteSig)
                             let txHash = txResult.txHash
                             await send(.voteCommitmentSubmitted(txHash))
+
+                            // Persist committed state so share delegation can resume if interrupted
+                            try await votingCrypto.persistCommittedVote(CommittedVoteRecord(
+                                roundId: roundId, bundleIndex: bundleIndex, proposalId: proposalId,
+                                choice: choice.index, numOptions: numOptions, txHash: txHash, bundle: builtBundle
+                            ))
 
                             // Poll until our TX lands and extract exact leaf positions
                             // from the cast_vote event (emits "vanIdx,vcIdx").
@@ -1856,8 +2079,9 @@ public struct Voting { // swiftlint:disable:this type_body_length
                             }
                             if let lastShareError { throw lastShareError }
 
-                            // Mark vote submitted in DB for this bundle
+                            // Mark vote submitted in DB and clear the committed record
                             try await votingCrypto.markVoteSubmitted(roundId, bundleIndex, proposalId)
+                            try? await votingCrypto.clearCommittedVote(roundId, bundleIndex, proposalId)
                         }
 
                         // All bundles voted — advance to proposal list

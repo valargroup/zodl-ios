@@ -3,6 +3,8 @@ import ComposableArchitecture
 import DatabaseFiles
 import MnemonicClient
 import Voting
+import VotingAPIClient
+import VotingCryptoClient
 import VotingModels
 import WalletStorage
 @testable import secant_testnet
@@ -200,6 +202,84 @@ final class VotingStoreTests: XCTestCase {
         await store.receive(.delegationProofCompleted) { state in
             state.delegationProofStatus = .complete
         }
+    }
+
+    func testResumeCommittedVoteAfterInterruption() async throws {
+        var initialState = Voting.State(
+            votingRound: MockVotingService.votingRound,
+            votingWeight: 1,
+            isKeystoneUser: false,
+            roundId: "aabb"
+        )
+        initialState.activeSession = VotingSession(
+            voteRoundId: Data(repeating: 0xAA, count: 32),
+            snapshotHeight: 1,
+            snapshotBlockhash: Data(repeating: 0x01, count: 32),
+            proposalsHash: Data(repeating: 0x02, count: 32),
+            voteEndTime: Date(),
+            eaPK: Data(repeating: 0x03, count: 32),
+            vkZkp1: Data(repeating: 0x04, count: 32),
+            vkZkp2: Data(repeating: 0x05, count: 32),
+            vkZkp3: Data(repeating: 0x06, count: 32),
+            ncRoot: Data(repeating: 0x07, count: 32),
+            nullifierIMTRoot: Data(repeating: 0x08, count: 32),
+            creator: "creator",
+            proposals: MockVotingService.votingRound.proposals,
+            status: .active
+        )
+        initialState.delegationProofStatus = .complete
+        initialState.bundleCount = 1
+
+        let committedRecord = CommittedVoteRecord(
+            roundId: "aabb",
+            bundleIndex: 0,
+            proposalId: 1,
+            choice: 0,
+            numOptions: 3,
+            txHash: "DEADBEEF",
+            bundle: VoteCommitmentBundle(
+                vanNullifier: Data(repeating: 0x01, count: 32),
+                voteAuthorityNoteNew: Data(repeating: 0x02, count: 32),
+                voteCommitment: Data(repeating: 0x03, count: 32),
+                proposalId: 1,
+                proof: Data(repeating: 0x04, count: 32),
+                encShares: [],
+                anchorHeight: 10,
+                voteRoundId: "aabb",
+                sharesHash: Data(repeating: 0x05, count: 32)
+            )
+        )
+
+        let store = TestStore(initialState: initialState) {
+            Voting()
+        }
+        store.exhaustivity = .off
+
+        store.dependencies.votingCrypto.getCommittedVotes = { _ in [committedRecord] }
+        store.dependencies.votingCrypto.clearCommittedVote = { _, _, _ in }
+        store.dependencies.votingCrypto.storeVanPosition = { _, _, _ in }
+        store.dependencies.votingCrypto.markVoteSubmitted = { _, _, _ in }
+        store.dependencies.votingCrypto.buildSharePayloads = { _, _, _, _, _ in [] }
+        store.dependencies.votingAPI.fetchTxConfirmation = { _ in
+            TxConfirmation(
+                height: 500,
+                code: 0,
+                events: [
+                    TxEvent(type: "cast_vote", attributes: [
+                        TxEventAttribute(key: "vote_round_id", value: "aabb"),
+                        TxEventAttribute(key: "leaf_index", value: "8,9"),
+                    ])
+                ]
+            )
+        }
+        store.dependencies.votingAPI.delegateShares = { _, _ in }
+
+        await store.send(.resumeCommittedVotes) { state in
+            state.isSubmittingVote = true
+            state.voteSubmissionStep = .sendingShares
+        }
+
+        await store.receive(.advanceAfterVote)
     }
 
     // Note: Client-side signature verification was removed — Keystone signatures
