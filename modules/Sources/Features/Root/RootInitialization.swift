@@ -517,6 +517,14 @@ extension Root {
                     state = .initial
                 }
 
+                // Clean up per-account voting files (SQLite DBs, recovery JSONs)
+                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                if let files = try? FileManager.default.contentsOfDirectory(at: docs, includingPropertiesForKeys: nil) {
+                    for file in files where file.lastPathComponent.hasPrefix("voting-") {
+                        try? FileManager.default.removeItem(at: file)
+                    }
+                }
+
                 return .send(.resetZashiKeychainRequest)
                 
             case .resetZashiKeychainRequest:

@@ -425,18 +425,19 @@ public struct WalletStorage {
 
     // MARK: - Voting Hotkey
 
-    public func importVotingHotkey(_ phrase: String) throws {
+    public func importVotingHotkey(_ phrase: String, accountTag: String) throws {
         let hotkey = StoredVotingHotkey(
             seedPhrase: SeedPhrase(phrase),
             version: Constants.zcashKeychainVersion
         )
 
+        let key = "\(Constants.zcashStoredVotingHotkey)_\(accountTag)"
         do {
             guard let data = try encode(object: hotkey) else {
                 throw KeychainError.encoding
             }
 
-            try setData(data, forKey: Constants.zcashStoredVotingHotkey)
+            try setData(data, forKey: key)
         } catch KeychainError.duplicate {
             throw WalletStorageError.alreadyImported
         } catch {
@@ -444,11 +445,12 @@ public struct WalletStorage {
         }
     }
 
-    public func exportVotingHotkey() throws -> StoredVotingHotkey {
+    public func exportVotingHotkey(accountTag: String) throws -> StoredVotingHotkey {
+        let key = "\(Constants.zcashStoredVotingHotkey)_\(accountTag)"
         let reqData: Data?
 
         do {
-            reqData = try data(forKey: Constants.zcashStoredVotingHotkey)
+            reqData = try data(forKey: key)
         } catch KeychainError.noDataFound {
             throw WalletStorageError.uninitializedWallet
         } catch {

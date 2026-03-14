@@ -87,11 +87,11 @@ extension WalletStorageClient: DependencyKey {
             exportTorSetupFlag: {
                 walletStorage.exportTorSetupFlag()
             },
-            importVotingHotkey: { phrase in
-                try walletStorage.importVotingHotkey(phrase)
+            importVotingHotkey: { phrase, accountTag in
+                try walletStorage.importVotingHotkey(phrase, accountTag: accountTag)
             },
-            exportVotingHotkey: {
-                try walletStorage.exportVotingHotkey()
+            exportVotingHotkey: { accountTag in
+                try walletStorage.exportVotingHotkey(accountTag: accountTag)
             }
         )
     }

@@ -105,7 +105,7 @@ public struct WalletStorageClient {
     public var importTorSetupFlag: (Bool) throws -> Void
     public var exportTorSetupFlag: () -> Bool? = { nil }
 
-    /// Voting hotkey
-    public var importVotingHotkey: (String) throws -> Void
-    public var exportVotingHotkey: () throws -> StoredVotingHotkey
+    /// Voting hotkey (scoped per-account via accountTag)
+    public var importVotingHotkey: (_ phrase: String, _ accountTag: String) throws -> Void
+    public var exportVotingHotkey: (_ accountTag: String) throws -> StoredVotingHotkey
 }
