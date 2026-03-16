@@ -711,4 +711,66 @@ final class TxEventParsingTests: XCTestCase {
         XCTAssertNil(confirmation.event(ofType: "delegate_vote"))
         XCTAssertNil(confirmation.event(ofType: "cast_vote"))
     }
+
+    // MARK: - Option Groups
+
+    func testProposalWithOptionGroupsParsesCorrectly() {
+        let group = OptionGroup(id: 0, label: "Fixed date", optionIndices: [1, 2])
+        let proposal = Proposal(
+            id: 1,
+            title: "Sprout sunset",
+            description: "When?",
+            options: [
+                VoteOption(index: 0, label: "Immediately"),
+                VoteOption(index: 1, label: "One year"),
+                VoteOption(index: 2, label: "Two years"),
+                VoteOption(index: 3, label: "When quantum threat"),
+            ],
+            optionGroups: [group]
+        )
+
+        XCTAssertEqual(proposal.optionGroups.count, 1)
+        XCTAssertEqual(proposal.optionGroups[0].label, "Fixed date")
+        XCTAssertEqual(proposal.optionGroups[0].optionIndices, [1, 2])
+    }
+
+    func testProposalWithoutGroupsHasEmptyArray() {
+        let proposal = Proposal(
+            id: 1,
+            title: "Simple",
+            description: "Binary",
+            options: [
+                VoteOption(index: 0, label: "Support"),
+                VoteOption(index: 1, label: "Oppose"),
+            ]
+        )
+
+        XCTAssertTrue(proposal.optionGroups.isEmpty)
+    }
+
+    func testVoteChoiceWorksWithGroupedProposal() {
+        let proposal = Proposal(
+            id: 1,
+            title: "Sprout sunset",
+            description: "When?",
+            options: [
+                VoteOption(index: 0, label: "Immediately"),
+                VoteOption(index: 1, label: "One year"),
+                VoteOption(index: 2, label: "Two years"),
+                VoteOption(index: 3, label: "When quantum threat"),
+            ],
+            optionGroups: [
+                OptionGroup(id: 0, label: "Fixed date", optionIndices: [1, 2])
+            ]
+        )
+
+        let choice = VoteChoice.option(2)
+        XCTAssertEqual(choice.index, 2)
+
+        let chosenOption = proposal.options.first { $0.index == choice.index }
+        XCTAssertEqual(chosenOption?.label, "Two years")
+
+        let groupedIndices = Set(proposal.optionGroups.flatMap(\.optionIndices))
+        XCTAssertTrue(groupedIndices.contains(choice.index))
+    }
 }

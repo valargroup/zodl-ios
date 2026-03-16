@@ -13,6 +13,7 @@ struct ProposalDetailView: View {
 
     private let impactFeedback = UIImpactFeedbackGenerator(style: .light)
     @State private var now = Date()
+    @State private var expandedGroupId: UInt32?
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var timeRemainingText: String {
@@ -158,16 +159,93 @@ struct ProposalDetailView: View {
                     .padding(.bottom, 4)
                 }
 
-                ForEach(proposal.options, id: \.index) { option in
-                    let choice = VoteChoice.option(option.index)
-                    voteButton(
-                        title: option.label,
-                        icon: voteOptionIcon(for: option.index, total: proposal.options.count),
-                        color: voteOptionColor(for: option.index, total: proposal.options.count),
-                        isSelected: pendingChoice == choice,
-                        enabled: votingEnabled
-                    ) {
-                        store.send(.castVote(proposalId: proposal.id, choice: choice))
+                if proposal.optionGroups.isEmpty {
+                    ForEach(proposal.options, id: \.index) { option in
+                        let choice = VoteChoice.option(option.index)
+                        voteButton(
+                            title: option.label,
+                            icon: voteOptionIcon(for: option.index, total: proposal.options.count),
+                            color: voteOptionColor(for: option.index, total: proposal.options.count),
+                            isSelected: pendingChoice == choice,
+                            enabled: votingEnabled
+                        ) {
+                            store.send(.castVote(proposalId: proposal.id, choice: choice))
+                        }
+                    }
+                } else {
+                    let groupedIndices = Set(proposal.optionGroups.flatMap(\.optionIndices))
+                    let groupByFirstIndex: [UInt32: OptionGroup] = Dictionary(
+                        proposal.optionGroups.compactMap { g in
+                            g.optionIndices.min().map { ($0, g) }
+                        },
+                        uniquingKeysWith: { a, _ in a }
+                    )
+
+                    ForEach(proposal.options, id: \.index) { option in
+                        if let group = groupByFirstIndex[option.index] {
+                            let memberOptions = group.optionIndices.compactMap { idx in
+                                proposal.options.first { $0.index == idx }
+                            }
+                            let isExpanded = expandedGroupId == group.id
+                            let hasSelectedSub = memberOptions.contains { pendingChoice == .option($0.index) }
+
+                            VStack(spacing: 6) {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        expandedGroupId = isExpanded ? nil : group.id
+                                    }
+                                    impactFeedback.impactOccurred()
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: isExpanded ? "chevron.down.circle.fill" : "chevron.right.circle.fill")
+                                            .font(.system(size: 18))
+                                            .foregroundStyle(hasSelectedSub ? .green : Design.Text.primary.color(colorScheme))
+                                        Text(group.label)
+                                            .zFont(.semiBold, size: 15, style: hasSelectedSub ? Design.Text.primary : Design.Text.secondary)
+                                        Spacer()
+                                        if hasSelectedSub {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundStyle(.green)
+                                        }
+                                    }
+                                    .padding(14)
+                                    .background(Design.Surfaces.bgPrimary.color(colorScheme))
+                                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .stroke(hasSelectedSub ? Color.green.opacity(0.4) : Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+
+                                if isExpanded {
+                                    ForEach(memberOptions, id: \.index) { subOption in
+                                        let choice = VoteChoice.option(subOption.index)
+                                        voteButton(
+                                            title: subOption.label,
+                                            icon: voteOptionIcon(for: subOption.index, total: proposal.options.count),
+                                            color: voteOptionColor(for: subOption.index, total: proposal.options.count),
+                                            isSelected: pendingChoice == choice,
+                                            enabled: votingEnabled
+                                        ) {
+                                            store.send(.castVote(proposalId: proposal.id, choice: choice))
+                                        }
+                                        .padding(.leading, 16)
+                                    }
+                                }
+                            }
+                        } else if !groupedIndices.contains(option.index) {
+                            let choice = VoteChoice.option(option.index)
+                            voteButton(
+                                title: option.label,
+                                icon: voteOptionIcon(for: option.index, total: proposal.options.count),
+                                color: voteOptionColor(for: option.index, total: proposal.options.count),
+                                isSelected: pendingChoice == choice,
+                                enabled: votingEnabled
+                            ) {
+                                store.send(.castVote(proposalId: proposal.id, choice: choice))
+                            }
+                        }
                     }
                 }
             }

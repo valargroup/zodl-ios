@@ -250,11 +250,22 @@ private func parseVotingSession(from round: [String: Any]) throws -> VotingSessi
                     )
                 }
             }
+            var optionGroups: [OptionGroup] = []
+            if let groupsJSON = p["option_groups"] as? [[String: Any]] {
+                optionGroups = groupsJSON.map { g in
+                    OptionGroup(
+                        id: parseUInt32(g["id"]),
+                        label: g["label"] as? String ?? "",
+                        optionIndices: (g["option_indices"] as? [Any])?.compactMap { parseUInt32($0) } ?? []
+                    )
+                }
+            }
             return Proposal(
                 id: parseUInt32(p["id"]),
                 title: p["title"] as? String ?? "",
                 description: p["description"] as? String ?? "",
-                options: options
+                options: options,
+                optionGroups: optionGroups
             )
         }
     }

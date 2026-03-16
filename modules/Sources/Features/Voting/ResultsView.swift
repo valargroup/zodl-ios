@@ -183,33 +183,8 @@ struct ResultsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            // Result highlight
-            if let winner = winningEntry, totalAmount > 0 {
-                let winnerLabel = optionLabel(for: winner.decision, proposal: proposal)
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .foregroundStyle(colorForDecision(winner.decision, proposal: proposal))
-                    Text("Result: \(winnerLabel)")
-                        .zFont(.semiBold, size: 14, style: Design.Text.primary)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(colorForDecision(winner.decision, proposal: proposal).opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-
-            // Result bars — use option labels from proposal.options when available
-            ForEach(entries.sorted(by: { $0.decision < $1.decision }), id: \.decision) { entry in
-                let label = optionLabel(for: entry.decision, proposal: proposal)
-                let isWinner = entry.decision == winningEntry?.decision
-                resultBar(
-                    label: label,
-                    amount: entry.amount,
-                    total: totalAmount,
-                    color: colorForDecision(entry.decision, proposal: proposal),
-                    isWinner: isWinner
-                )
-            }
+            // Result highlight + bars (group-aware)
+            resultHighlightAndBars(proposal: proposal, entries: entries, totalAmount: totalAmount, winningEntry: winningEntry)
 
             if entries.isEmpty {
                 Text("No votes recorded")
@@ -231,37 +206,154 @@ struct ResultsView: View {
         )
     }
 
-    // MARK: - Result Bar
+    // MARK: - Result Row
 
     @ViewBuilder
-    private func resultBar(label: String, amount: UInt64, total: UInt64, color: Color, isWinner: Bool) -> some View {
-        let ratio = total > 0 ? Double(amount) / Double(total) : 0
+    private func resultRow(label: String, amount: UInt64, color: Color, isWinner: Bool) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text(label)
+                .zFont(isWinner ? .semiBold : .medium, size: 13, style: isWinner ? Design.Text.primary : Design.Text.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Text(tallyToZEC(amount))
+                .zFont(.medium, size: 13, style: Design.Text.primary)
+                .layoutPriority(1)
+        }
+    }
 
-        VStack(spacing: 4) {
-            HStack(spacing: 8) {
-                HStack(spacing: 4) {
-                    if isWinner {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(color)
-                    }
-                    Text(label)
-                        .zFont(isWinner ? .semiBold : .medium, size: 13, style: Design.Text.secondary)
-                }
-                .frame(width: 80, alignment: .leading)
+    // MARK: - Result Highlight + Group-Aware Bars
 
-                GeometryReader { geo in
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(color.opacity(isWinner ? 0.9 : 0.5))
-                        .frame(width: geo.size.width * ratio)
-                }
-                .frame(height: 8)
+    @ViewBuilder
+    private func resultHighlightAndBars(proposal: Proposal, entries: [TallyResult.Entry], totalAmount: UInt64, winningEntry: TallyResult.Entry?) -> some View {
+        let colorMap = buildDisplayColorMap(proposal: proposal, entries: entries)
 
-                Text(tallyToZEC(amount))
-                    .zFont(.medium, size: 12, style: Design.Text.primary)
-                    .frame(width: 80, alignment: .trailing)
+        if let winner = winningEntry, totalAmount > 0 {
+            let winnerLabel = optionLabel(for: winner.decision, proposal: proposal)
+            let winnerColor = colorMap[winner.decision] ?? colorForDecision(winner.decision, proposal: proposal)
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.seal.fill")
+                    .foregroundStyle(winnerColor)
+                Text("Result: \(winnerLabel)")
+                    .zFont(.semiBold, size: 14, style: Design.Text.primary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(winnerColor.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+
+        groupAwareResults(proposal: proposal, entries: entries, totalAmount: totalAmount, winningEntry: winningEntry)
+    }
+
+    private func buildDisplayColorMap(proposal: Proposal, entries: [TallyResult.Entry]) -> [UInt32: Color] {
+        let groupedIndices = Set(proposal.optionGroups.flatMap(\.optionIndices))
+        let groupByFirst: [UInt32: OptionGroup] = Dictionary(
+            proposal.optionGroups.compactMap { g in g.optionIndices.min().map { ($0, g) } },
+            uniquingKeysWith: { a, _ in a }
+        )
+        let sortedEntries = entries.sorted { $0.decision < $1.decision }
+
+        var displayItems: [(decision: UInt32, group: OptionGroup?)] = []
+        for entry in sortedEntries {
+            if let group = groupByFirst[entry.decision] {
+                displayItems.append((entry.decision, group))
+            } else if !groupedIndices.contains(entry.decision) {
+                displayItems.append((entry.decision, nil))
             }
         }
+        let topLevelCount = displayItems.count
+
+        var colorMap: [UInt32: Color] = [:]
+        var subOffset = topLevelCount
+        for (di, item) in displayItems.enumerated() {
+            let dc = voteOptionColor(for: UInt32(di), total: topLevelCount)
+            if let group = item.group {
+                for (si, idx) in group.optionIndices.enumerated() {
+                    colorMap[idx] = voteOptionColor(for: UInt32(subOffset + si), total: topLevelCount + group.optionIndices.count)
+                }
+                subOffset += group.optionIndices.count
+            } else {
+                colorMap[item.decision] = dc
+            }
+        }
+        return colorMap
+    }
+
+    @ViewBuilder
+    private func groupAwareResults(proposal: Proposal, entries: [TallyResult.Entry], totalAmount: UInt64, winningEntry: TallyResult.Entry?) -> some View {
+        let entryByDecision = Dictionary(entries.map { ($0.decision, $0.amount) }, uniquingKeysWith: { a, _ in a })
+        let groupedIndices = Set(proposal.optionGroups.flatMap(\.optionIndices))
+        let groupByFirst: [UInt32: OptionGroup] = Dictionary(
+            proposal.optionGroups.compactMap { g in g.optionIndices.min().map { ($0, g) } },
+            uniquingKeysWith: { a, _ in a }
+        )
+
+        let displayItems = buildDisplayItems(proposal: proposal, entries: entries, entryByDecision: entryByDecision, groupedIndices: groupedIndices, groupByFirst: groupByFirst, winningEntry: winningEntry)
+        let topLevelCount = displayItems.count
+
+        ForEach(Array(displayItems.enumerated()), id: \.offset) { displayIdx, item in
+            let displayColor = voteOptionColor(for: UInt32(displayIdx), total: topLevelCount)
+            if let group = item.group {
+                VStack(alignment: .leading, spacing: 6) {
+                    resultRow(
+                        label: group.label,
+                        amount: item.amount,
+                        color: displayColor,
+                        isWinner: false
+                    )
+                    ForEach(Array(group.optionIndices.enumerated()), id: \.element) { subIdx, idx in
+                        let subAmount = entryByDecision[idx] ?? 0
+                        let subLabel = optionLabel(for: idx, proposal: proposal)
+                        let subColor = voteOptionColor(for: UInt32(topLevelCount + subIdx), total: topLevelCount + group.optionIndices.count)
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(subColor)
+                                .frame(width: 6, height: 6)
+                            Text(subLabel)
+                                .zFont(.regular, size: 12, style: Design.Text.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                            Text(tallyToZEC(subAmount))
+                                .zFont(.medium, size: 12, style: Design.Text.tertiary)
+                                .layoutPriority(1)
+                        }
+                        .padding(.leading, 16)
+                    }
+                }
+            } else {
+                resultRow(
+                    label: item.label,
+                    amount: item.amount,
+                    color: displayColor,
+                    isWinner: item.isWinner
+                )
+            }
+        }
+    }
+
+    private struct DisplayItem {
+        let label: String
+        let amount: UInt64
+        let isWinner: Bool
+        let group: OptionGroup?
+    }
+
+    private func buildDisplayItems(proposal: Proposal, entries: [TallyResult.Entry], entryByDecision: [UInt32: UInt64], groupedIndices: Set<UInt32>, groupByFirst: [UInt32: OptionGroup], winningEntry: TallyResult.Entry?) -> [DisplayItem] {
+        let sortedEntries = entries.sorted { $0.decision < $1.decision }
+        var items: [DisplayItem] = []
+        for entry in sortedEntries {
+            if let group = groupByFirst[entry.decision] {
+                let groupTotal = group.optionIndices.reduce(UInt64(0)) { $0 + (entryByDecision[$1] ?? 0) }
+                items.append(DisplayItem(label: group.label, amount: groupTotal, isWinner: false, group: group))
+            } else if !groupedIndices.contains(entry.decision) {
+                let label = optionLabel(for: entry.decision, proposal: proposal)
+                items.append(DisplayItem(label: label, amount: entry.amount, isWinner: entry.decision == winningEntry?.decision, group: nil))
+            }
+        }
+        return items
     }
 
     // MARK: - Helpers
