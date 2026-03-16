@@ -245,7 +245,7 @@ struct ResultsView: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
 
-        groupAwareResults(proposal: proposal, entries: entries, totalAmount: totalAmount, winningEntry: winningEntry)
+        groupAwareResults(proposal: proposal, entries: entries, totalAmount: totalAmount, winningEntry: winningEntry, colorMap: colorMap)
     }
 
     private func buildDisplayColorMap(proposal: Proposal, entries: [TallyResult.Entry]) -> [UInt32: Color] {
@@ -265,6 +265,8 @@ struct ResultsView: View {
             }
         }
         let topLevelCount = displayItems.count
+        let totalSubOptions = displayItems.compactMap(\.group).reduce(0) { $0 + $1.optionIndices.count }
+        let colorSlots = topLevelCount + totalSubOptions
 
         var colorMap: [UInt32: Color] = [:]
         var subOffset = topLevelCount
@@ -272,7 +274,7 @@ struct ResultsView: View {
             let dc = voteOptionColor(for: UInt32(di), total: topLevelCount)
             if let group = item.group {
                 for (si, idx) in group.optionIndices.enumerated() {
-                    colorMap[idx] = voteOptionColor(for: UInt32(subOffset + si), total: topLevelCount + group.optionIndices.count)
+                    colorMap[idx] = voteOptionColor(for: UInt32(subOffset + si), total: colorSlots)
                 }
                 subOffset += group.optionIndices.count
             } else {
@@ -283,7 +285,7 @@ struct ResultsView: View {
     }
 
     @ViewBuilder
-    private func groupAwareResults(proposal: Proposal, entries: [TallyResult.Entry], totalAmount: UInt64, winningEntry: TallyResult.Entry?) -> some View {
+    private func groupAwareResults(proposal: Proposal, entries: [TallyResult.Entry], totalAmount: UInt64, winningEntry: TallyResult.Entry?, colorMap: [UInt32: Color]) -> some View {
         let entryByDecision = Dictionary(entries.map { ($0.decision, $0.amount) }, uniquingKeysWith: { a, _ in a })
         let groupedIndices = Set(proposal.optionGroups.flatMap(\.optionIndices))
         let groupByFirst: [UInt32: OptionGroup] = Dictionary(
@@ -304,10 +306,10 @@ struct ResultsView: View {
                         color: displayColor,
                         isWinner: false
                     )
-                    ForEach(Array(group.optionIndices.enumerated()), id: \.element) { subIdx, idx in
+                    ForEach(Array(group.optionIndices.enumerated()), id: \.element) { _, idx in
                         let subAmount = entryByDecision[idx] ?? 0
                         let subLabel = optionLabel(for: idx, proposal: proposal)
-                        let subColor = voteOptionColor(for: UInt32(topLevelCount + subIdx), total: topLevelCount + group.optionIndices.count)
+                        let subColor = colorMap[idx] ?? colorForDecision(idx, proposal: proposal)
                         HStack(spacing: 8) {
                             Circle()
                                 .fill(subColor)
