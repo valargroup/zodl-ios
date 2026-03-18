@@ -59,6 +59,14 @@ public struct TachyonDemoView: View {
             LCSenderEnterAmountView(store: store)
         case .lcSenderShowPayment:
             LCSenderShowPaymentView(store: store)
+        case .lcSenderRevoking:
+            TachyonProcessingView(message: "Revoking payment...")
+        case .lcSenderRevoked:
+            TachyonSuccessView(
+                store: store,
+                title: "Payment Revoked",
+                subtitle: "Funds swept back to your wallet. The link is now invalid."
+            )
         case .lcRecipientClaim:
             LCRecipientClaimView(store: store)
         case .lcRecipientClaiming:

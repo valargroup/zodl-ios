@@ -31,8 +31,11 @@ public struct TachyonDemo {
 
             // Flow 2: URI-Encapsulated Payment / Local Cash
             // Sender enters amount → shows QR/share → switch → Recipient claims → done
+            // Alternative: Sender revokes before recipient claims
             case lcSenderEnterAmount
             case lcSenderShowPayment
+            case lcSenderRevoking
+            case lcSenderRevoked
             case lcRecipientClaim
             case lcRecipientClaiming
             case lcRecipientDone
@@ -59,7 +62,7 @@ public struct TachyonDemo {
                      .ppRecipientCheckRelay, .ppRecipientChecking, .ppRecipientPaymentsArrived:
                     return .recipient
                 case .prSenderConfirm, .prSenderProcessing,
-                     .lcSenderEnterAmount, .lcSenderShowPayment,
+                     .lcSenderEnterAmount, .lcSenderShowPayment, .lcSenderRevoking, .lcSenderRevoked,
                      .ppSenderEnterAmount, .ppSenderConfirm, .ppSenderProcessing:
                     return .sender
                 }
@@ -201,6 +204,9 @@ public struct TachyonDemo {
         // Delays
         case simulatedDelayCompleted
 
+        // Revoke (Flow 2)
+        case revokePayment
+
         // Public Payment specific
         case registerWithRelay
         case checkRelay
@@ -277,6 +283,14 @@ public struct TachyonDemo {
 
             case .simulatedDelayCompleted:
                 return handleDelayCompleted(&state)
+
+            case .revokePayment:
+                state.screenStack.append(.lcSenderRevoking)
+                return .run { send in
+                    try await mainQueue.sleep(for: .seconds(1.5))
+                    await send(.simulatedDelayCompleted)
+                }
+                .cancellable(id: CancelID.simulatedDelay)
 
             case .registerWithRelay:
                 state.screenStack.append(.ppRecipientRegistering)
@@ -405,6 +419,10 @@ public struct TachyonDemo {
         case .prSenderProcessing:
             // Sender done → switch back to recipient
             state.screenStack.append(.switchTo(.recipient))
+            return .none
+
+        case .lcSenderRevoking:
+            state.screenStack.append(.lcSenderRevoked)
             return .none
 
         case .lcRecipientClaiming:
