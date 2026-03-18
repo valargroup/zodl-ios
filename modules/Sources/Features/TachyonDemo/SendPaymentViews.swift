@@ -92,6 +92,10 @@ struct LCSenderShowPaymentView: View {
                     ZashiButton("Recipient claims this", type: .secondary) {
                         store.send(.proceedTapped)
                     }
+
+                    ZashiButton("Revoke Payment", type: .destructive1) {
+                        store.send(.revokePayment)
+                    }
                 }
                 .padding(.bottom, 32)
             }
