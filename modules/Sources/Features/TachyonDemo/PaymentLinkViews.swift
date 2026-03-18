@@ -230,6 +230,59 @@ struct PLOutsideInstallAppView: View {
     }
 }
 
+// MARK: - Outside: Face ID → Wallet Created
+
+struct PLOutsideFaceIDView: View {
+    let store: StoreOf<TachyonDemo>
+
+    var body: some View {
+        WithPerceptionTracking {
+            VStack(spacing: 0) {
+                Spacer()
+
+                // Mock Face ID prompt
+                VStack(spacing: 20) {
+                    Image(systemName: "faceid")
+                        .font(.system(size: 64))
+                        .foregroundStyle(.blue)
+
+                    Text("Create Wallet")
+                        .zFont(.semiBold, size: 20, style: Design.Text.primary)
+
+                    Text("Zodl wants to create a secure wallet using Face ID. Your key will be stored in the Secure Enclave and synced via iCloud Keychain.")
+                        .zFont(size: 14, style: Design.Text.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(32)
+                .background {
+                    RoundedRectangle(cornerRadius: Design.Radius._2xl)
+                        .fill()
+                        .zForegroundColor(Design.Surfaces.bgSecondary)
+                }
+
+                VStack(spacing: 4) {
+                    Text("No seed phrase. No backup step.")
+                        .zFont(.medium, size: 14, style: Design.Text.primary)
+                    Text("Passkey-based wallet — key lives in Secure Enclave")
+                        .zFont(size: 12, style: Design.Text.support)
+                }
+                .multilineTextAlignment(.center)
+                .padding(.top, 16)
+
+                Spacer()
+
+                ZashiButton("Authenticate with Face ID", prefixView: Image(systemName: "faceid")) {
+                    store.send(.proceedTapped)
+                }
+                .padding(.bottom, 32)
+            }
+            .screenHorizontalPadding()
+            .navigationBarBackButtonHidden(true)
+        }
+        .applyScreenBackground()
+    }
+}
+
 // MARK: - Recipient: Claim
 
 struct PLRecipientClaimView: View {

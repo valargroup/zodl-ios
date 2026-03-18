@@ -71,6 +71,8 @@ public struct TachyonDemoView: View {
             PLOutsideMessageReceivedView(store: store)
         case .plOutsideInstallApp:
             PLOutsideInstallAppView(store: store)
+        case .plOutsideFaceID:
+            PLOutsideFaceIDView(store: store)
         case .plRecipientClaim:
             PLRecipientClaimView(store: store)
         case .plRecipientFinalizing:

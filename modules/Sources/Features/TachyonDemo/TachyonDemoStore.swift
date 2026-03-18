@@ -35,6 +35,7 @@ public struct TachyonDemo {
             case plSenderRevoked
             case plOutsideMessageReceived  // mock: iMessage with link
             case plOutsideInstallApp       // mock: App Store install
+            case plOutsideFaceID           // mock: Face ID → wallet created via passkey
             case plRecipientClaim
             case plRecipientFinalizing
             case plRecipientDone
@@ -64,7 +65,7 @@ public struct TachyonDemo {
             public var role: Role? {
                 switch self {
                 case .flowPicker, .switchTo,
-                     .plOutsideMessageReceived, .plOutsideInstallApp,
+                     .plOutsideMessageReceived, .plOutsideInstallApp, .plOutsideFaceID,
                      .cashOutsideCameraScan, .cashOutsideInstallApp:
                     return nil
                 case .prRecipientCreate, .prRecipientShowQR, .prRecipientReceived,
@@ -397,6 +398,10 @@ public struct TachyonDemo {
             return .none
 
         case .plOutsideInstallApp:
+            state.screenStack.append(.plOutsideFaceID)
+            return .none
+
+        case .plOutsideFaceID:
             state.screenStack.append(.plRecipientClaim)
             return .none
 
