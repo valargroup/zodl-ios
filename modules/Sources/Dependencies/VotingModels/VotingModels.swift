@@ -517,10 +517,13 @@ public struct SharePayload: Equatable, Sendable {
     public let shareComms: [Data]
     /// Blind factor for this specific share (32 bytes).
     public let primaryBlind: Data
+    /// Unix seconds at which the helper should submit the share; 0 = immediate (last-moment).
+    public var submitAt: UInt64
 
     public init(
         sharesHash: Data, proposalId: UInt32, voteDecision: UInt32, encShare: EncryptedShare,
-        treePosition: UInt64, allEncShares: [EncryptedShare] = [], shareComms: [Data] = [], primaryBlind: Data = Data()
+        treePosition: UInt64, allEncShares: [EncryptedShare] = [], shareComms: [Data] = [],
+        primaryBlind: Data = Data(), submitAt: UInt64 = 0
     ) {
         self.sharesHash = sharesHash
         self.proposalId = proposalId
@@ -530,6 +533,7 @@ public struct SharePayload: Equatable, Sendable {
         self.allEncShares = allEncShares
         self.shareComms = shareComms
         self.primaryBlind = primaryBlind
+        self.submitAt = submitAt
     }
 }
 

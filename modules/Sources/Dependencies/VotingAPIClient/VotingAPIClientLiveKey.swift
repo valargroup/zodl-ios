@@ -470,7 +470,8 @@ extension VotingAPIClient: DependencyKey {
                             ]
                         },
                         "share_comms": payload.shareComms.map { $0.base64EncodedString() },
-                        "primary_blind": payload.primaryBlind.base64EncodedString()
+                        "primary_blind": payload.primaryBlind.base64EncodedString(),
+                        "submit_at": payload.submitAt
                     ]
 
                     // Pick `quorum` distinct servers uniformly at random for each
