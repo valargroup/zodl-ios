@@ -144,6 +144,9 @@ public struct VotingCryptoClient {
     public var syncVoteTree: @Sendable (_ roundId: String, _ nodeUrl: String) async throws -> UInt32
     public var generateVanWitness: @Sendable (_ roundId: String, _ bundleIndex: UInt32, _ anchorHeight: UInt32) async throws -> VanWitness
     public var markVoteSubmitted: @Sendable (_ roundId: String, _ bundleIndex: UInt32, _ proposalId: UInt32) async throws -> Void
+    /// Mark a proposal's VAN authority bit as spent so `proposal_authority`
+    /// is decremented for subsequent proposals.
+    public var markVanAuthoritySpent: @Sendable (_ roundId: String, _ bundleIndex: UInt32, _ proposalId: UInt32) async throws -> Void
     /// Drop the in-memory TreeClient so the next `syncVoteTree` starts fresh.
     /// Recovers from stale state after commitment tree timeout.
     public var resetTreeClient: @Sendable () async throws -> Void
@@ -201,12 +204,42 @@ public struct VotingCryptoClient {
         _ bundle: VoteCommitmentBundle,
         _ vcTreePosition: UInt64
     ) async throws -> Void
-    /// Load a persisted vote commitment bundle (nil if never stored).
+    /// Load a persisted vote commitment bundle and VC tree position (nil if never stored).
     public var getVoteCommitmentBundle: @Sendable (
         _ roundId: String,
         _ bundleIndex: UInt32,
         _ proposalId: UInt32
-    ) async throws -> VoteCommitmentBundle?
+    ) async throws -> VoteCommitmentBundleStored?
+    /// Per-helper share submission receipts (opaque status tokens).
+    public var storeShareDelegationReceipt: @Sendable (
+        _ roundId: String,
+        _ bundleIndex: UInt32,
+        _ proposalId: UInt32,
+        _ receipt: ShareDelegationReceipt
+    ) async throws -> Void
+        = { _, _, _, _ in }
+    public var listShareDelegationReceipts: @Sendable (
+        _ roundId: String,
+        _ bundleIndex: UInt32,
+        _ proposalId: UInt32
+    ) async throws -> [ShareDelegationReceipt]
+        = { _, _, _ in [] }
+    public var clearShareDelegationReceiptsForVote: @Sendable (
+        _ roundId: String,
+        _ bundleIndex: UInt32,
+        _ proposalId: UInt32
+    ) async throws -> Void
+        = { _, _, _ in }
+    public var markShareRevealedForHelper: @Sendable (
+        _ roundId: String,
+        _ bundleIndex: UInt32,
+        _ proposalId: UInt32,
+        _ shareIndex: UInt32,
+        _ helperURL: String
+    ) async throws -> Void
+        = { _, _, _, _, _ in }
+    public var listPendingShareReveals: @Sendable () async throws -> [PendingShareRevealGroup]
+        = { [] }
     /// Clear recovery state for a round (keystone sigs, TX hashes).
     public var clearRecoveryState: @Sendable (
         _ roundId: String

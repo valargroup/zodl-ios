@@ -93,6 +93,7 @@ final class VotingStoreTests: XCTestCase {
         await store.receive(.delegationProofCompleted) { state in
             state.delegationProofStatus = .complete
         }
+        await store.receive(.pendingShareRevealProposalsUpdated([]))
     }
 
     func testKeystoneSignatureResumesDelegationProofPipeline() async throws {
@@ -203,6 +204,7 @@ final class VotingStoreTests: XCTestCase {
         await store.receive(.delegationProofCompleted) { state in
             state.delegationProofStatus = .complete
         }
+        await store.receive(.pendingShareRevealProposalsUpdated([]))
     }
 
     // Note: Client-side signature verification was removed — Keystone signatures
@@ -711,5 +713,89 @@ final class TxEventParsingTests: XCTestCase {
         let confirmation = TxConfirmation(height: 100, code: 0, events: [])
         XCTAssertNil(confirmation.event(ofType: "delegate_vote"))
         XCTAssertNil(confirmation.event(ofType: "cast_vote"))
+    }
+
+    // MARK: - Share Status Polling Tests
+
+    /// Scanner dispatches `pendingShareRevealProposalsUpdated` and `confirmShareRevealsForGroup`
+    /// for groups whose max(submit_at) is within the 5-minute threshold.
+    func testCheckPendingShareRevealsDispatchesEligibleGroups() async throws {
+        let roundId = "aabb"
+        let nf = Data(repeating: 0xCD, count: 32)
+        var initialState = Voting.State(roundId: roundId)
+        initialState.activeSession = VotingSession(
+            voteRoundId: Data(repeating: 0xAA, count: 32),
+            snapshotHeight: 1,
+            snapshotBlockhash: Data(repeating: 0x01, count: 32),
+            proposalsHash: Data(repeating: 0x02, count: 32),
+            voteEndTime: Date().addingTimeInterval(3600),
+            eaPK: Data(repeating: 0x03, count: 32),
+            vkZkp1: Data(repeating: 0x04, count: 32),
+            vkZkp2: Data(repeating: 0x05, count: 32),
+            vkZkp3: Data(repeating: 0x06, count: 32),
+            ncRoot: Data(repeating: 0x07, count: 32),
+            nullifierIMTRoot: Data(repeating: 0x08, count: 32),
+            creator: "creator",
+            proposals: [Proposal(id: 1, title: "P1", description: "desc")],
+            status: .active
+        )
+
+        let pendingGroup = PendingShareRevealGroup(
+            roundId: roundId,
+            bundleIndex: 0,
+            proposalId: 1,
+            receipts: [
+                ShareDelegationReceipt(
+                    shareIndex: 0, helperURL: "https://helper.test",
+                    shareNullifier: nf, seq: 0, submitAt: 0, revealConfirmed: false
+                )
+            ]
+        )
+
+        let store = TestStore(initialState: initialState) {
+            Voting()
+        }
+        store.exhaustivity = .off
+
+        store.dependencies.votingCrypto.listPendingShareReveals = { [pendingGroup] }
+
+        await store.send(.checkPendingShareReveals)
+        await store.receive(.pendingShareRevealProposalsUpdated([1]))
+        await store.receive(.confirmShareRevealsForGroup(pendingGroup))
+    }
+
+    /// `shareRevealGroupFinished` triggers a progress reload for the finished proposal.
+    func testShareRevealGroupFinishedReloadsProgress() async throws {
+        let initialState = Voting.State(roundId: "aabb")
+
+        let store = TestStore(initialState: initialState) {
+            Voting()
+        }
+        store.exhaustivity = .off
+
+        store.dependencies.votingCrypto.listShareDelegationReceipts = { _, _, _ in [] }
+        store.dependencies.votingCrypto.getVoteCommitmentBundle = { _, _, _ in nil }
+
+        await store.send(.shareRevealGroupFinished("aabb", 0, 1))
+        await store.receive(.shareProgressUpdated(1, .init(totalShares: 0, sent: 0, confirmed: 0)))
+    }
+
+    /// Ensures Swift ↔ Rust FFI JSON uses snake_case keys for `ShareDelegationReceipt`.
+    func testShareDelegationReceiptJSONRoundTrip() throws {
+        let nf = Data(repeating: 0xAB, count: 32)
+        let original = ShareDelegationReceipt(
+            shareIndex: 3,
+            helperURL: "https://helper.example",
+            shareNullifier: nf,
+            seq: 1
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(ShareDelegationReceipt.self, from: data)
+        XCTAssertEqual(decoded, original)
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(obj?["share_index"] as? Int, 3)
+        XCTAssertEqual(obj?["helper_url"] as? String, "https://helper.example")
+        XCTAssertEqual(obj?["share_nullifier"] as? String, nf.hexString)
+        XCTAssertEqual(obj?["seq"] as? Int, 1)
     }
 }

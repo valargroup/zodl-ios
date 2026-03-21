@@ -61,6 +61,24 @@ struct ProposalListView: View {
         }
     }
 
+    @ViewBuilder
+    private func awaitingRevealBanner() -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Share reveal pending")
+                .font(.headline)
+            Text(
+                "Some votes were delegated to vote servers; the on-chain reveal is scheduled for later. "
+                    + "Open Governance again within a few minutes of that time so the app can confirm your shares."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color.orange.opacity(0.15))
+        .cornerRadius(12)
+    }
+
     // MARK: - Scroll View
 
     @ViewBuilder
@@ -73,6 +91,9 @@ struct ProposalListView: View {
                     } else {
                         roundInfoCard()
                         zkpBanner()
+                        if !store.proposalsAwaitingShareReveal.isEmpty {
+                            awaitingRevealBanner()
+                        }
                         progressHeader()
 
                         ForEach(store.votingRound.proposals) { proposal in
@@ -274,6 +295,10 @@ extension ProposalListView {
             Text(proposal.description)
                 .zFont(.regular, size: 13, style: Design.Text.secondary)
                 .lineLimit(2)
+
+            if vote != nil, let progress = store.shareProgress[proposal.id], progress.totalShares > 0 {
+                shareProgressRow(progress)
+            }
         }
         .padding(16)
         .background(Design.Surfaces.bgPrimary.color(colorScheme))
@@ -291,6 +316,41 @@ extension ProposalListView {
         .contentShape(Rectangle())
         .onTapGesture {
             store.send(.proposalTapped(proposal.id))
+        }
+    }
+
+    @ViewBuilder
+    func shareProgressRow(_ progress: Voting.State.ShareProgress) -> some View {
+        HStack(spacing: 16) {
+            segmentedBar(
+                label: "Sent",
+                filled: progress.sent,
+                total: progress.totalShares,
+                activeColor: .blue
+            )
+            segmentedBar(
+                label: "Confirmed",
+                filled: progress.confirmed,
+                total: progress.totalShares,
+                activeColor: .green
+            )
+        }
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    func segmentedBar(label: String, filled: Int, total: Int, activeColor: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("\(label) \(filled)/\(total)")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Design.Text.tertiary.color(colorScheme))
+            HStack(spacing: 1.5) {
+                ForEach(0..<total, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(i < filled ? activeColor : Design.Surfaces.strokeSecondary.color(colorScheme))
+                        .frame(height: 6)
+                }
+            }
         }
     }
 }

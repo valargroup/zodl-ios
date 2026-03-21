@@ -23,6 +23,11 @@ import os
 
 private let logger = Logger(subsystem: "co.zodl.voting", category: "VotingStore")
 
+/// Exponential backoff between share-status polls: 20s, 40s, … (~10.3 min for 5 attempts).
+private let sharePollBackoffBaseSeconds: TimeInterval = 20
+/// If `submit_at` is farther out than this, defer confirmation until a later governance open.
+private let shareRevealNearThresholdSeconds: TimeInterval = 300
+
 private enum VotingFlowError: LocalizedError {
     case missingActiveSession
     case missingSigningAccount
@@ -32,6 +37,9 @@ private enum VotingFlowError: LocalizedError {
     case missingVoteCommitmentBundle
     case delegationTxFailed(code: UInt32)
     case voteCommitmentTxFailed(code: UInt32)
+    case missingShareDelegationReceipts
+    case shareStatusTerminal(String)
+    case shareConfirmationTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -51,8 +59,224 @@ private enum VotingFlowError: LocalizedError {
             return "delegation TX failed on-chain (code \(code)) or missing delegate_vote event"
         case .voteCommitmentTxFailed(code: let code):
             return "vote commitment TX failed on-chain (code \(code))"
+        case .missingShareDelegationReceipts:
+            return "no persisted share delegation receipts — cannot poll helper status"
+        case .shareStatusTerminal(let status):
+            return "share submission failed on helper (status: \(status))"
+        case .shareConfirmationTimedOut:
+            return "timed out waiting for share confirmation from helper servers"
         }
     }
+}
+
+// MARK: - Share status polling (opaque helper tokens; only original helper URLs)
+
+private enum SharePollResult {
+    case confirmed
+    case timedOut
+}
+
+private func pollShareWithBackoff(
+    helperURL: String,
+    roundIdHex: String,
+    nullifierHex: String,
+    statusFetch: @Sendable (String, String, String) async throws -> String
+) async throws -> SharePollResult {
+    let base = sharePollBackoffBaseSeconds
+    for retry in 0..<5 {
+        let delay = base * pow(2, Double(retry))
+        try await Task.sleep(for: .seconds(delay))
+        let status = try await statusFetch(helperURL, roundIdHex, nullifierHex)
+        switch status {
+        case "confirmed":
+            return .confirmed
+        case "failed":
+            throw VotingFlowError.shareStatusTerminal(status)
+        default:
+            break
+        }
+    }
+    return .timedOut
+}
+
+/// Poll, then optionally re-POST to the same helper and poll again (per plan).
+private func pollAndMaybeResubmitOneHelper(
+    roundId: String,
+    bundleIndex: UInt32,
+    proposalId: UInt32,
+    receipt: ShareDelegationReceipt,
+    payload: SharePayload,
+    votingAPI: VotingAPIClient,
+    votingCrypto: VotingCryptoClient
+) async throws -> Bool {
+    let nf = receipt.shareNullifier.hexString
+    switch try await pollShareWithBackoff(
+        helperURL: receipt.helperURL,
+        roundIdHex: roundId,
+        nullifierHex: nf,
+        statusFetch: votingAPI.fetchShareSubmissionStatus
+    ) {
+    case .confirmed:
+        try await votingCrypto.markShareRevealedForHelper(
+            roundId, bundleIndex, proposalId, receipt.shareIndex, receipt.helperURL
+        )
+        return true
+    case .timedOut:
+        break
+    }
+    let resent = try await votingAPI.resubmitShare(payload, roundId, receipt.helperURL)
+    guard resent else { return false }
+    switch try await pollShareWithBackoff(
+        helperURL: receipt.helperURL,
+        roundIdHex: roundId,
+        nullifierHex: nf,
+        statusFetch: votingAPI.fetchShareSubmissionStatus
+    ) {
+    case .confirmed:
+        try await votingCrypto.markShareRevealedForHelper(
+            roundId, bundleIndex, proposalId, receipt.shareIndex, receipt.helperURL
+        )
+        return true
+    case .timedOut:
+        return false
+    }
+}
+
+/// Confirm all shares for this vote concurrently. Each share independently
+/// sleeps until its own `submit_at`, then polls its helpers. Returns false
+/// if any share fails to reach quorum.
+///
+/// Handles partial delegation: if some shares have no receipts (initial POST
+/// failed), attempts fresh submission to servers known from other shares.
+private func confirmAllSharesForVote(
+    roundId: String,
+    bundleIndex: UInt32,
+    proposalId: UInt32,
+    payloads: [SharePayload],
+    votingAPI: VotingAPIClient,
+    votingCrypto: VotingCryptoClient
+) async throws -> Bool {
+    let payloadByIndex = Dictionary(uniqueKeysWithValues: payloads.map { ($0.encShare.shareIndex, $0) })
+    let rows = try await votingCrypto.listShareDelegationReceipts(roundId, bundleIndex, proposalId)
+    let byShare = Dictionary(grouping: rows, by: \.shareIndex)
+    let knownServers = Array(Set(rows.map(\.helperURL)))
+
+    let allShareIndices = payloads.map(\.encShare.shareIndex).sorted()
+
+    return try await withThrowingTaskGroup(of: Bool.self) { group in
+        for shareIdx in allShareIndices {
+            guard let payload = payloadByIndex[shareIdx] else { continue }
+            let initialList = byShare[shareIdx] ?? []
+
+            group.addTask {
+                // Per-share sleep: wait until this share's submit_at
+                if payload.submitAt > 0 {
+                    let wait = Date(timeIntervalSince1970: TimeInterval(payload.submitAt)).timeIntervalSinceNow
+                    if wait > 0 {
+                        try await Task.sleep(for: .seconds(wait))
+                    }
+                }
+
+                var list = initialList
+                if list.isEmpty {
+                    for server in knownServers.shuffled() {
+                        do {
+                            let accepted = try await votingAPI.resubmitShare(payload, roundId, server)
+                            if accepted {
+                                let receipt = ShareDelegationReceipt(
+                                    shareIndex: shareIdx,
+                                    helperURL: server,
+                                    shareNullifier: payload.shareNullifier,
+                                    seq: 0,
+                                    submitAt: payload.submitAt,
+                                    revealConfirmed: false
+                                )
+                                try await votingCrypto.storeShareDelegationReceipt(
+                                    roundId, bundleIndex, proposalId, receipt
+                                )
+                                list.append(receipt)
+                                break
+                            }
+                        } catch {
+                            continue
+                        }
+                    }
+                    if list.isEmpty { return false }
+                }
+
+                let orderedReceipts = list.sorted {
+                    if $0.seq != $1.seq { return $0.seq < $1.seq }
+                    return $0.helperURL < $1.helperURL
+                }
+                let requiredDistinct = orderedReceipts.count >= 2 ? 2 : 1
+                var confirmedURLs: Set<String> = Set(orderedReceipts.filter(\.revealConfirmed).map(\.helperURL))
+                if confirmedURLs.count >= requiredDistinct { return true }
+
+                for r in orderedReceipts where !r.revealConfirmed {
+                    if confirmedURLs.count >= requiredDistinct { break }
+                    let ok = try await pollAndMaybeResubmitOneHelper(
+                        roundId: roundId,
+                        bundleIndex: bundleIndex,
+                        proposalId: proposalId,
+                        receipt: r,
+                        payload: payload,
+                        votingAPI: votingAPI,
+                        votingCrypto: votingCrypto
+                    )
+                    if ok {
+                        confirmedURLs.insert(r.helperURL)
+                    }
+                }
+                return confirmedURLs.count >= requiredDistinct
+            }
+        }
+
+        // Fast-fail: if any share can't reach quorum, bail out early.
+        // Remaining shares may still be sleeping or polling, but the scanner
+        // will retry the entire group on its next pass via checkPendingShareReveals.
+        for try await shareOk in group {
+            if !shareOk { return false }
+        }
+        return true
+    }
+}
+
+/// POST shares when needed and persist receipts.
+///
+/// Does **not** wait for `submit_at` or poll helpers — that work runs in
+/// ``checkPendingShareReveals`` so the vote submission effect can finish (clearing
+/// `isSubmittingVote`) and the user can vote on other proposals while reveals complete.
+private func delegatePersistAndConfirmShares(
+    roundId: String,
+    bundleIndex: UInt32,
+    proposalId: UInt32,
+    payloads: [SharePayload],
+    votingAPI: VotingAPIClient,
+    votingCrypto: VotingCryptoClient
+) async throws {
+    let existing = try await votingCrypto.listShareDelegationReceipts(roundId, bundleIndex, proposalId)
+    guard existing.isEmpty else {
+        // Receipts already in DB (crash retry); helper polling is owned by checkPendingShareReveals.
+        return
+    }
+    var lastError: Error?
+    for attempt in 1...3 {
+        do {
+            try await votingCrypto.clearShareDelegationReceiptsForVote(roundId, bundleIndex, proposalId)
+            let receipts = try await votingAPI.delegateShares(payloads, roundId)
+            for receipt in receipts {
+                try await votingCrypto.storeShareDelegationReceipt(roundId, bundleIndex, proposalId, receipt)
+            }
+            return
+        } catch {
+            lastError = error
+            logger.warning("share delegate attempt \(attempt)/3 failed: \(error.localizedDescription)")
+            if attempt < 3 {
+                try await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+    throw lastError ?? VotingFlowError.shareConfirmationTimedOut
 }
 
 private enum VotingErrorMapper {
@@ -77,8 +301,29 @@ private enum VotingErrorMapper {
         if rawError.contains("invalid commitment tree anchor height") {
             return "The voting state is out of sync. Please retry to use the latest data."
         }
+        if rawError.contains("does not match the voting round's nc_root") {
+            return "Your wallet's lightwalletd snapshot doesn't match this voting round's on-chain data. "
+                + "In Settings, try the default Stardust server (or the same server the round creator used), "
+                + "then leave the round and re-enter. If it persists, the round may need to be recreated."
+        }
+        if rawError.contains("PIR nullifier IMT root does not match this voting round") {
+            return "Your nullifier (PIR) server doesn't match this voting round — proofs would be rejected on-chain. "
+                + "In voting config, use the same nullifier URL as when the round was created, then leave the round and re-enter."
+        }
         if rawError.contains("invalid zero-knowledge proof") {
-            return "Your proof was rejected by the network. Please try again."
+            // Cosmos wraps the verifier detail after "delegation: " (e.g. halo2 public-input layout).
+            // Surface a short suffix so Xcode / support logs are actionable; full string is still in the error.
+            let suffix: String = {
+                let needle = "delegation: "
+                guard let r = rawError.range(of: needle) else { return "" }
+                let rest = String(rawError[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !rest.isEmpty else { return "" }
+                if rest.count <= 160 { return " (\(rest))" }
+                return " (\(rest.prefix(160))…)"
+            }()
+            return "Your proof was rejected by the network.\(suffix) "
+                + "If this persists, use the same Stardust lightwalletd and PIR server as the round creator, "
+                + "and ensure the chain binary was built with ZK verification (e.g. install-ffi / halo2+redpallas)."
         }
         if rawError.contains("delegation bundle build failed") || rawError.contains("create_proof failed") {
             return "Proof generation failed. Please try again."
@@ -241,9 +486,24 @@ public struct Voting { // swiftlint:disable:this type_body_length
         /// Wallet sync progress info for the walletSyncing screen.
         public var walletScannedHeight: UInt64 = 0
 
-        /// Per-proposal share confirmation tracking (proposalId → confirmed count 0-5).
-        public var shareConfirmations: [UInt32: Int] = [:]
-        public var isPollingShareConfirmations: Bool = false
+        /// Per-proposal share delegation/reveal progress derived from receipt rows.
+        public struct ShareProgress: Equatable {
+            public var totalShares: Int
+            public var sent: Int
+            public var confirmed: Int
+
+            public init(totalShares: Int, sent: Int, confirmed: Int) {
+                self.totalShares = totalShares
+                self.sent = sent
+                self.confirmed = confirmed
+            }
+        }
+        public var shareProgress: [UInt32: ShareProgress] = [:]
+
+        /// Proposals whose shares were sent to helpers but on-chain reveal is still pending (deferred window).
+        public var proposalsAwaitingShareReveal: Set<UInt32> = []
+        /// Active per-group share-reveal effect IDs for cleanup on dismiss.
+        var activeShareRevealGroupIDs: Set<ShareRevealGroupCancelID> = []
 
         /// Cached wallet notes from the snapshot query, used by delegation proof.
         public var walletNotes: [NoteInfo] = []
@@ -456,9 +716,16 @@ public struct Voting { // swiftlint:disable:this type_body_length
 
     let cancelStateStreamId = UUID()
     let cancelStatusPollingId = UUID()
-    let cancelSharePollingId = UUID()
     let cancelPipelineId = UUID()
     let cancelNewRoundPollingId = UUID()
+    let cancelPendingShareRevealCheckId = UUID()
+
+    /// Per-group cancellation so new votes don't restart existing polls.
+    struct ShareRevealGroupCancelID: Hashable {
+        let roundId: String
+        let bundleIndex: UInt32
+        let proposalId: UInt32
+    }
 
     public enum Action: Equatable {
         // Navigation
@@ -551,8 +818,15 @@ public struct Voting { // swiftlint:disable:this type_body_length
         case tallyResultsLoaded([UInt32: TallyResult])
 
         // Share confirmation polling
-        case startShareConfirmationPolling(UInt32)
-        case shareConfirmationsUpdated(UInt32, Int)
+        /// Run after rounds load / governance open: scans DB and dispatches per-group confirmation effects.
+        case checkPendingShareReveals
+        case pendingShareRevealProposalsUpdated(Set<UInt32>)
+        /// Per-group confirmation with its own cancellation scope (does not cancel other groups).
+        case confirmShareRevealsForGroup(PendingShareRevealGroup)
+        case shareRevealGroupFinished(String, UInt32, UInt32)
+        case sharesAwaitingRevealRecorded(UInt32)
+        case shareRevealsConfirmed(proposalId: UInt32)
+        case shareProgressUpdated(UInt32, State.ShareProgress)
 
         // Complete
         case doneTapped
@@ -567,13 +841,18 @@ public struct Voting { // swiftlint:disable:this type_body_length
 
             case .dismissFlow:
                 state.screenStack = [.loading]
-                return .merge(
+                var cancels: [Effect<Action>] = [
                     .cancel(id: cancelStateStreamId),
                     .cancel(id: cancelStatusPollingId),
-                    .cancel(id: cancelSharePollingId),
                     .cancel(id: cancelPipelineId),
-                    .cancel(id: cancelNewRoundPollingId)
-                )
+                    .cancel(id: cancelNewRoundPollingId),
+                    .cancel(id: cancelPendingShareRevealCheckId)
+                ]
+                for gid in state.activeShareRevealGroupIDs {
+                    cancels.append(.cancel(id: gid))
+                }
+                state.activeShareRevealGroupIDs = []
+                return .merge(cancels)
 
             case .goBack:
                 if state.screenStack.count > 1 {
@@ -605,11 +884,11 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 state.tallyResults = [:]
                 state.isLoadingTallyResults = false
                 state.ineligibilityReason = nil
+                state.shareProgress = [:]
                 // Refresh the rounds list
                 return .merge(
                     .cancel(id: cancelStateStreamId),
                     .cancel(id: cancelStatusPollingId),
-                    .cancel(id: cancelSharePollingId),
                     .cancel(id: cancelPipelineId),
                     .cancel(id: cancelNewRoundPollingId),
                     .run { [votingAPI] send in
@@ -632,20 +911,24 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 // Auto-navigate: active round takes priority, else latest completed.
                 // Skip if the user is already viewing the same round (guards against
                 // onAppear re-firing .initialize and restarting the pipeline mid-vote).
+                // Exception: if we're on the loading screen (e.g. re-entering after
+                // dismissFlow), always navigate so the user isn't stuck.
+                let onLoadingScreen = state.currentScreen == .loading
+                let checkPending: Effect<Action> = .send(.checkPendingShareReveals)
                 if let activeItem = state.activeRounds.first {
-                    guard activeItem.id != state.activeSession?.voteRoundId.hexString else {
-                        return .none
+                    guard onLoadingScreen || activeItem.id != state.activeSession?.voteRoundId.hexString else {
+                        return checkPending
                     }
-                    return .send(.roundTapped(activeItem.id))
+                    return .merge(checkPending, .send(.roundTapped(activeItem.id)))
                 } else if let completedItem = state.completedRounds.first {
-                    guard completedItem.id != state.activeSession?.voteRoundId.hexString else {
-                        return .none
+                    guard onLoadingScreen || completedItem.id != state.activeSession?.voteRoundId.hexString else {
+                        return checkPending
                     }
-                    return .send(.roundTapped(completedItem.id))
+                    return .merge(checkPending, .send(.roundTapped(completedItem.id)))
                 } else {
                     // No rounds — show empty state
                     state.screenStack = [.noRounds]
-                    return .none
+                    return checkPending
                 }
 
             case .roundTapped(let roundId):
@@ -654,6 +937,8 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 state.activeSession = session
                 state.roundId = session.voteRoundId.hexString
                 state.votingRound = sessionBackedRound(from: session, title: item.title, fallback: state.votingRound)
+                state.proposalsAwaitingShareReveal = []
+                state.shareProgress = [:]
                 reconcileProposalState(&state)
 
                 switch session.status {
@@ -974,31 +1259,194 @@ public struct Voting { // swiftlint:disable:this type_body_length
 
             // MARK: - Share Confirmation Polling
 
-            case .startShareConfirmationPolling(let proposalId):
-                state.isPollingShareConfirmations = true
-                guard let session = state.activeSession else { return .none }
-                let roundIdHex = session.voteRoundId.hexString
-                return .run { [votingAPI] send in
-                    while !Task.isCancelled {
-                        try await Task.sleep(for: .seconds(5))
-                        // Check tally endpoint for reveal-share counts
-                        let tally = try await votingAPI.fetchProposalTally(
-                            dataFromHex(roundIdHex), proposalId
+            case .checkPendingShareReveals:
+                guard !state.isDelegationProofInFlight else { return .none }
+                let activeRoundId = state.roundId
+                let bundleCount = state.bundleCount
+                return .run { [votingCrypto] send in
+                    do {
+                        let groups = try await votingCrypto.listPendingShareReveals()
+                        let activePendingProposals = Set(
+                            groups
+                                .filter { $0.roundId == activeRoundId }
+                                .map(\.proposalId)
                         )
-                        let totalShares = tally.entries.reduce(0) { $0 + Int($1.amount) }
-                        await send(.shareConfirmationsUpdated(proposalId, min(totalShares, 5)))
+                        logger.info(
+                            "checkPendingShareReveals: loaded \(groups.count) groups, active round pending proposals=\(String(describing: Array(activePendingProposals).sorted()))"
+                        )
+                        await send(.pendingShareRevealProposalsUpdated(activePendingProposals))
+                        for proposalId in activePendingProposals {
+                            await loadAndSendShareProgress(
+                                roundId: activeRoundId, bundleCount: bundleCount,
+                                proposalId: proposalId, votingCrypto: votingCrypto, send: send
+                            )
+                        }
+                        let cutoff = Date().addingTimeInterval(shareRevealNearThresholdSeconds)
+                        var nearestSkippedWake: Date?
+                        for group in groups {
+                            let maxSubmitAt = group.receipts.map(\.submitAt).max() ?? 0
+                            let submitAtDate = maxSubmitAt > 0
+                                ? Date(timeIntervalSince1970: TimeInterval(maxSubmitAt))
+                                : Date()
+                            logger.info(
+                                "checkPendingShareReveals: round=\(group.roundId, privacy: .public) proposal=\(group.proposalId) bundle=\(group.bundleIndex) receipts=\(group.receipts.count) maxSubmitAt=\(maxSubmitAt)"
+                            )
+                            if submitAtDate > cutoff {
+                                let wakeAt = submitAtDate.addingTimeInterval(-shareRevealNearThresholdSeconds)
+                                if nearestSkippedWake == nil || wakeAt < nearestSkippedWake! {
+                                    nearestSkippedWake = wakeAt
+                                }
+                                continue
+                            }
+                            await send(.confirmShareRevealsForGroup(group))
+                        }
+                        if let wake = nearestSkippedWake {
+                            let delay = max(wake.timeIntervalSinceNow, 10)
+                            try await Task.sleep(for: .seconds(delay))
+                            await send(.checkPendingShareReveals)
+                        }
+                    } catch {
+                        logger.error("checkPendingShareReveals scan failed: \(error.localizedDescription)")
                     }
-                } catch: { error, _ in
-                    logger.error("Share confirmation polling error: \(error)")
                 }
-                .cancellable(id: cancelSharePollingId, cancelInFlight: true)
+                .cancellable(id: cancelPendingShareRevealCheckId, cancelInFlight: true)
 
-            case let .shareConfirmationsUpdated(proposalId, count):
-                state.shareConfirmations[proposalId] = count
-                if count >= 5 {
-                    state.isPollingShareConfirmations = false
-                    return .cancel(id: cancelSharePollingId)
+            case .pendingShareRevealProposalsUpdated(let proposalIds):
+                state.proposalsAwaitingShareReveal = proposalIds
+                return .none
+
+            case .confirmShareRevealsForGroup(let group):
+                guard !state.isDelegationProofInFlight else { return .none }
+                let groupId = ShareRevealGroupCancelID(
+                    roundId: group.roundId, bundleIndex: group.bundleIndex, proposalId: group.proposalId
+                )
+                guard !state.activeShareRevealGroupIDs.contains(groupId) else { return .none }
+                state.activeShareRevealGroupIDs.insert(groupId)
+                let groupBundleCount = state.bundleCount
+                return .run { [votingAPI, votingCrypto] send in
+                    do {
+                        let session: VotingSession
+                        do {
+                            session = try await votingAPI.fetchRoundById(group.roundId)
+                        } catch {
+                            logger.warning(
+                                "confirmShareRevealsForGroup: fetchRoundById failed for \(group.roundId): \(error.localizedDescription) — will re-queue via scanner"
+                            )
+                            try? await Task.sleep(for: .seconds(30))
+                            await send(.checkPendingShareReveals)
+                            return
+                        }
+                        let singleShare = session.isLastMoment
+                        let votes = try await votingCrypto.getVotes(group.roundId)
+                        guard let voteRecord = votes.first(where: {
+                            $0.proposalId == group.proposalId && $0.bundleIndex == group.bundleIndex && !$0.submitted
+                        }) else {
+                            return
+                        }
+                        let numOptions = UInt32(
+                            session.proposals.first { $0.id == group.proposalId }?.options.count ?? 3
+                        )
+                        guard let stored = try await votingCrypto.getVoteCommitmentBundle(
+                            group.roundId, group.bundleIndex, group.proposalId
+                        ) else {
+                            logger.error(
+                                "confirmShareRevealsForGroup: missing bundle for round \(group.roundId) bundle \(group.bundleIndex)"
+                            )
+                            return
+                        }
+                        var payloads = try await votingCrypto.buildSharePayloads(
+                            stored.bundle.encShares,
+                            stored.bundle,
+                            voteRecord.choice,
+                            numOptions,
+                            stored.vcTreePosition,
+                            singleShare
+                        )
+                        var submitByShare: [UInt32: UInt64] = [:]
+                        for r in group.receipts {
+                            submitByShare[r.shareIndex] = r.submitAt
+                        }
+                        for i in payloads.indices {
+                            let si = payloads[i].encShare.shareIndex
+                            if let sa = submitByShare[si] {
+                                payloads[i].submitAt = sa
+                            }
+                        }
+                        let ok = try await withThrowingTaskGroup(of: Bool.self) { taskGroup in
+                            taskGroup.addTask {
+                                try await confirmAllSharesForVote(
+                                    roundId: group.roundId,
+                                    bundleIndex: group.bundleIndex,
+                                    proposalId: group.proposalId,
+                                    payloads: payloads,
+                                    votingAPI: votingAPI,
+                                    votingCrypto: votingCrypto
+                                )
+                            }
+                            taskGroup.addTask {
+                                while !Task.isCancelled {
+                                    try await Task.sleep(for: .seconds(10))
+                                    await loadAndSendShareProgress(
+                                        roundId: group.roundId, bundleCount: groupBundleCount,
+                                        proposalId: group.proposalId,
+                                        votingCrypto: votingCrypto, send: send
+                                    )
+                                }
+                                return false
+                            }
+                            let result = try await taskGroup.next() ?? false
+                            taskGroup.cancelAll()
+                            return result
+                        }
+                        if ok {
+                            try await votingCrypto.markVoteSubmitted(
+                                group.roundId, group.bundleIndex, group.proposalId
+                            )
+                            await send(.shareRevealsConfirmed(proposalId: group.proposalId))
+                        }
+                    } catch {
+                        logger.error(
+                            "confirmShareRevealsForGroup failed for proposal \(group.proposalId): \(error.localizedDescription)"
+                        )
+                    }
+                    await send(.shareRevealGroupFinished(group.roundId, group.bundleIndex, group.proposalId))
                 }
+                .cancellable(id: groupId)
+
+            case let .shareRevealGroupFinished(roundId, bundleIndex, proposalId):
+                state.activeShareRevealGroupIDs.remove(
+                    ShareRevealGroupCancelID(roundId: roundId, bundleIndex: bundleIndex, proposalId: proposalId)
+                )
+                let bundleCount = state.bundleCount
+                return .run { [votingCrypto] send in
+                    await loadAndSendShareProgress(
+                        roundId: roundId, bundleCount: bundleCount,
+                        proposalId: proposalId, votingCrypto: votingCrypto, send: send
+                    )
+                }
+
+            case .sharesAwaitingRevealRecorded(let proposalId):
+                state.proposalsAwaitingShareReveal.insert(proposalId)
+                logger.info("sharesAwaitingRevealRecorded: proposal \(proposalId) now locked pending reveal confirmation")
+                let roundId = state.roundId
+                let bundleCount = state.bundleCount
+                return .merge(
+                    .send(.checkPendingShareReveals),
+                    .run { [votingCrypto] send in
+                        await loadAndSendShareProgress(
+                            roundId: roundId, bundleCount: bundleCount,
+                            proposalId: proposalId, votingCrypto: votingCrypto, send: send
+                        )
+                    }
+                )
+
+            case .shareRevealsConfirmed(let proposalId):
+                state.proposalsAwaitingShareReveal.remove(proposalId)
+                logger.info("shareRevealsConfirmed: proposal \(proposalId) share reveals confirmed")
+                return .none
+
+            case let .shareProgressUpdated(proposalId, progress):
+                state.shareProgress[proposalId] = progress
                 return .none
 
             // MARK: - Witness Verification
@@ -1240,12 +1688,27 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 let bundleCount = count
                 return .run { [votingCrypto] send in
                     let votes = (try? await votingCrypto.getVotes(roundId)) ?? []
+                    let voteSummary = votes
+                        .map { "p\($0.proposalId):b\($0.bundleIndex):submitted=\($0.submitted)" }
+                        .joined(separator: ", ")
+                    logger.info(
+                        "bundleCountRestored: round=\(roundId, privacy: .public) bundleCount=\(bundleCount) votes=\(voteSummary)"
+                    )
 
                     // Check 1: a TX hash exists but the vote isn't marked as submitted
                     // in the DB yet (crash during step 2 or 3 of a bundle).
                     let unsubmitted = votes.filter { !$0.submitted }
                     for vote in unsubmitted {
                         if let _ = try? await votingCrypto.getVoteTxHash(roundId, vote.bundleIndex, vote.proposalId) {
+                            let receipts = (try? await votingCrypto.listShareDelegationReceipts(
+                                roundId, vote.bundleIndex, vote.proposalId
+                            )) ?? []
+                            if !receipts.isEmpty {
+                                logger.info(
+                                    "Vote resume: proposal \(vote.proposalId) bundle \(vote.bundleIndex) has tx hash and \(receipts.count) share receipts; skipping auto-resume and letting share polling finish"
+                                )
+                                continue
+                            }
                             logger.info("Vote resume: found in-flight vote for proposal \(vote.proposalId), auto-resuming")
                             await send(.resumePendingVote(proposalId: vote.proposalId, choice: vote.choice))
                             return
@@ -1281,6 +1744,13 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 if state.isSubmittingVote {
                     for (proposalId, choice) in state.votes where mergedVotes[proposalId] == nil {
                         mergedVotes[proposalId] = choice
+                    }
+                }
+                for proposalId in state.proposalsAwaitingShareReveal where mergedVotes[proposalId] == nil {
+                    if let pendingChoice = dbState.votes.first(where: { $0.proposalId == proposalId })?.choice {
+                        mergedVotes[proposalId] = pendingChoice
+                    } else if let existingChoice = state.votes[proposalId] {
+                        mergedVotes[proposalId] = existingChoice
                     }
                 }
                 state.votes = mergedVotes
@@ -1855,9 +2325,12 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 state.currentKeystoneBundleIndex = 0
                 state.keystoneBundleSignatures = []
                 let roundId = state.roundId
-                return .run { [votingCrypto] _ in
-                    try await votingCrypto.clearRecoveryState(roundId)
-                }
+                return .merge(
+                    .run { [votingCrypto] _ in
+                        try await votingCrypto.clearRecoveryState(roundId)
+                    },
+                    .send(.checkPendingShareReveals)
+                )
 
             case .delegationProofFailed(let error):
                 state.currentKeystoneBundleIndex = 0
@@ -1875,7 +2348,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 }
                 state.delegationProofStatus = .failed(userMessage)
                 state.isDelegationProofInFlight = false
-                return .none
+                return .send(.checkPendingShareReveals)
 
             // MARK: - Proposal List
 
@@ -1888,7 +2361,14 @@ public struct Voting { // swiftlint:disable:this type_body_length
 
             case let .castVote(proposalId, choice):
                 // If already confirmed or a submission is in-flight, ignore
-                guard state.votes[proposalId] == nil, !state.isSubmittingVote else { return .none }
+                let hasExistingVote = state.votes[proposalId] != nil
+                let awaitingReveal = state.proposalsAwaitingShareReveal.contains(proposalId)
+                let isSubmitting = state.isSubmittingVote
+                guard !hasExistingVote, !awaitingReveal, !isSubmitting else {
+                    let msg = "castVote ignored for proposal \(proposalId): existingVote=\(hasExistingVote) awaitingReveal=\(awaitingReveal) isSubmitting=\(isSubmitting)"
+                    logger.info("\(msg)")
+                    return .none
+                }
                 state.pendingVote = .init(proposalId: proposalId, choice: choice)
                 return .none
 
@@ -1912,7 +2392,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 let roundId = state.roundId
                 let network = zcashSDKEnvironment.network
                 let networkId: UInt32 = network.networkType == .mainnet ? 0 : 1
-                let chainNodeUrl = state.serviceConfig?.voteServers.first?.url ?? "https://46-101-255-48.sslip.io"
+                let chainNodeUrl = state.serviceConfig?.voteServers.first?.url ?? "http://127.0.0.1:1318"
 
                 let bundleCount = state.bundleCount
                 let singleShare = state.activeSession?.isLastMoment ?? false
@@ -1939,6 +2419,12 @@ public struct Voting { // swiftlint:disable:this type_body_length
                         // Iterate bundles: each bundle has its own VAN and casts its own vote.
                         // Skip already-submitted bundles (enables retry after partial failure).
                         let existingVotes = try await votingCrypto.getVotes(roundId)
+                        let existingVoteSummary = existingVotes
+                            .map { "p\($0.proposalId):b\($0.bundleIndex):submitted=\($0.submitted)" }
+                            .joined(separator: ", ")
+                        logger.info(
+                            "confirmVote start: proposal \(proposalId) existing votes=\(existingVoteSummary)"
+                        )
                         let submittedBundles = Set(
                             existingVotes
                                 .filter { $0.proposalId == proposalId && $0.submitted }
@@ -1965,10 +2451,10 @@ public struct Voting { // swiftlint:disable:this type_body_length
 
                                         // Complete share delegation using the persisted bundle.
                                         // Without shares, the tally cannot decrypt the vote.
-                                        if let savedBundle = try? await votingCrypto.getVoteCommitmentBundle(roundId, bundleIndex, proposalId) {
+                                        if let stored = try? await votingCrypto.getVoteCommitmentBundle(roundId, bundleIndex, proposalId) {
                                             await send(.voteSubmissionStepUpdated(.sendingShares))
                                             var payloads = try await votingCrypto.buildSharePayloads(
-                                                savedBundle.encShares, savedBundle, choice, numOptions, vcIdx, singleShare
+                                                stored.bundle.encShares, stored.bundle, choice, numOptions, vcIdx, singleShare
                                             )
                                             // Each share gets its own independently sampled submit_at.
                                             let now = Date().timeIntervalSince1970
@@ -1979,25 +2465,23 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                                     payloads[i].submitAt = 0
                                                 }
                                             }
-                                            var lastShareError: Error?
-                                            for attempt in 1...3 {
-                                                do {
-                                                    try await votingAPI.delegateShares(payloads, roundId)
-                                                    lastShareError = nil
-                                                    break
-                                                } catch {
-                                                    lastShareError = error
-                                                    logger.warning("Vote recovery: delegateShares attempt \(attempt)/3 failed: \(error)")
-                                                    if attempt < 3 { try await Task.sleep(for: .seconds(2)) }
-                                                }
-                                            }
-                                            if let lastShareError { throw lastShareError }
-                                            logger.info("Vote recovery: shares sent for bundle \(bundleIndex)")
+                                            try await delegatePersistAndConfirmShares(
+                                                roundId: roundId,
+                                                bundleIndex: bundleIndex,
+                                                proposalId: proposalId,
+                                                payloads: payloads,
+                                                votingAPI: votingAPI,
+                                                votingCrypto: votingCrypto
+                                            )
+                                            logger.info(
+                                                "Vote recovery: shares POSTed for bundle \(bundleIndex); reveal confirmation in background"
+                                            )
+                                            await send(.sharesAwaitingRevealRecorded(proposalId))
                                         } else {
                                             logger.error("Vote recovery: no persisted bundle for share delegation — vote will not count in tally")
                                         }
 
-                                        try await votingCrypto.markVoteSubmitted(roundId, bundleIndex, proposalId)
+                                        try await votingCrypto.markVanAuthoritySpent(roundId, bundleIndex, proposalId)
                                         continue
                                     }
                                 }
@@ -2087,6 +2571,9 @@ public struct Voting { // swiftlint:disable:this type_body_length
                             let newVanPosition = vanIdx
                             let vcTreePosition = vcIdx
                             try await votingCrypto.storeVanPosition(roundId, bundleIndex, newVanPosition)
+                            logger.info(
+                                "Vote confirmed: proposal \(proposalId) bundle \(bundleIndex) stored new VAN position \(newVanPosition) and VC position \(vcTreePosition)"
+                            )
 
                             await send(.voteSubmissionStepUpdated(.sendingShares))
                             var payloads = try await votingCrypto.buildSharePayloads(
@@ -2104,25 +2591,22 @@ public struct Voting { // swiftlint:disable:this type_body_length
                             // Update the stored bundle with the actual VC tree position (now known after TX confirm)
                             try await votingCrypto.storeVoteCommitmentBundle(roundId, bundleIndex, proposalId, builtBundle, vcTreePosition)
 
-                            // Retry share delegation up to 3 times — helper servers may return 503 transiently
-                            var lastShareError: Error?
-                            for attempt in 1...3 {
-                                do {
-                                    try await votingAPI.delegateShares(payloads, roundId)
-                                    lastShareError = nil
-                                    break
-                                } catch {
-                                    lastShareError = error
-                                    logger.warning("delegateShares attempt \(attempt)/3 failed: \(error)")
-                                    if attempt < 3 {
-                                        try await Task.sleep(for: .seconds(2))
-                                    }
-                                }
-                            }
-                            if let lastShareError { throw lastShareError }
+                            // Mark this proposal's VAN authority bit as spent so the next
+                            // proposal's load_zkp2_inputs reconstructs the updated VAN.
+                            try await votingCrypto.markVanAuthoritySpent(roundId, bundleIndex, proposalId)
+                            logger.info(
+                                "Vote confirmed: proposal \(proposalId) bundle \(bundleIndex) marked VAN authority spent"
+                            )
 
-                            // Mark vote submitted in DB for this bundle
-                            try await votingCrypto.markVoteSubmitted(roundId, bundleIndex, proposalId)
+                            try await delegatePersistAndConfirmShares(
+                                roundId: roundId,
+                                bundleIndex: bundleIndex,
+                                proposalId: proposalId,
+                                payloads: payloads,
+                                votingAPI: votingAPI,
+                                votingCrypto: votingCrypto
+                            )
+                            await send(.sharesAwaitingRevealRecorded(proposalId))
                         }
 
                         // All bundles voted — advance to proposal list
@@ -2249,6 +2733,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
     private func reconcileProposalState(_ state: inout State) {
         let validProposalIDs = Set(state.votingRound.proposals.map(\.id))
         state.votes = state.votes.filter { validProposalIDs.contains($0.key) }
+        state.proposalsAwaitingShareReveal = state.proposalsAwaitingShareReveal.intersection(validProposalIDs)
 
         if let selectedProposalId = state.selectedProposalId,
             !validProposalIDs.contains(selectedProposalId) {
@@ -2268,6 +2753,42 @@ public struct Voting { // swiftlint:disable:this type_body_length
             state.screenStack.append(.proposalList)
         }
     }
+}
+
+// MARK: - Share Progress Helpers
+
+private func shareProgressFromReceipts(
+    _ receipts: [ShareDelegationReceipt],
+    totalShares: Int
+) -> Voting.State.ShareProgress {
+    var sentIndices = Set<UInt32>()
+    var confirmedIndices = Set<UInt32>()
+    for r in receipts {
+        sentIndices.insert(r.shareIndex)
+        if r.revealConfirmed { confirmedIndices.insert(r.shareIndex) }
+    }
+    return .init(totalShares: totalShares, sent: sentIndices.count, confirmed: confirmedIndices.count)
+}
+
+private func loadAndSendShareProgress(
+    roundId: String,
+    bundleCount: UInt32,
+    proposalId: UInt32,
+    votingCrypto: VotingCryptoClient,
+    send: Send<Voting.Action>
+) async {
+    var allReceipts: [ShareDelegationReceipt] = []
+    var schemeShareCount = 0
+    for bi: UInt32 in 0..<max(bundleCount, 1) {
+        if let receipts = try? await votingCrypto.listShareDelegationReceipts(roundId, bi, proposalId) {
+            allReceipts.append(contentsOf: receipts)
+        }
+        if let stored = try? await votingCrypto.getVoteCommitmentBundle(roundId, bi, proposalId) {
+            schemeShareCount = max(schemeShareCount, stored.bundle.encShares.count)
+        }
+    }
+    let progress = shareProgressFromReceipts(allReceipts, totalShares: schemeShareCount)
+    await send(.shareProgressUpdated(proposalId, progress))
 }
 
 // MARK: - Note Bundling
@@ -2343,19 +2864,6 @@ private extension Array where Element == NoteInfo {
     }
 }
 
-/// Convert hex string to Data (used for share confirmation polling).
-private func dataFromHex(_ hex: String) -> Data {
-    var data = Data()
-    var idx = hex.startIndex
-    while idx < hex.endIndex {
-        let next = hex.index(idx, offsetBy: 2, limitedBy: hex.endIndex) ?? hex.endIndex
-        if let byte = UInt8(hex[idx..<next], radix: 16) {
-            data.append(byte)
-        }
-        idx = next
-    }
-    return data
-}
 
 // MARK: - Skip Bundles Alert
 

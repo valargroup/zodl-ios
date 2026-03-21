@@ -5,7 +5,7 @@ How Zashi discovers vote servers and PIR servers at runtime.
 ## Resolution order
 
 1. **Local override** — `voting-config-local.json` bundled in the app (DEBUG builds only)
-2. **CDN** — `https://zally-phi.vercel.app/api/voting-config` (served from Vercel Edge Config)
+2. **CDN** — `https://shielded-vote.vercel.app/api/voting-config` (served from Vercel Edge Config)
 3. **Hardcoded fallback** — deployed dev server (`46.101.255.48`)
 
 The first source that succeeds wins. This means a TestFlight build works out of the box (CDN or fallback), while a developer can drop a local file into the bundle to point at localhost.
@@ -113,6 +113,15 @@ Both fields must be set for the heartbeat to activate. `join.sh` writes these au
 Whichever mode you start last wins, which is correct since you can only test against one chain at a time.
 
 To manually override, edit the file directly — it won't be overwritten until the next `mise start` or `multi:start`.
+
+### Simulator: local `svoted` + external nullifier service
+
+Use **`secant/Resources/voting-config-local.example.json`** as a template (committed). Copy it to **`secant/Resources/voting-config-local.json`** if that file is missing (the real file is gitignored). It sets:
+
+- **`vote_servers`** → `http://127.0.0.1:1318` (iOS Simulator reaches the Mac’s loopback where `svoted` listens)
+- **`pir_servers`** → `https://46-101-255-48.sslip.io/nullifier` (hosted PIR / IMT proofs)
+
+On a **physical device**, replace `127.0.0.1` with your Mac’s LAN IP. If **App Transport Security** blocks plain HTTP, add a Debug ATS exception for localhost or tunnel the chain over HTTPS.
 
 ## Where the URLs flow
 

@@ -397,7 +397,8 @@ extension VotingCryptoClient: DependencyKey {
                             )
                         },
                         shareComms: $0.shareComms.map { Data($0) },
-                        primaryBlind: Data($0.primaryBlind)
+                        primaryBlind: Data($0.primaryBlind),
+                        shareNullifier: Data($0.shareNullifier)
                     )
                 }
             },
@@ -410,7 +411,7 @@ extension VotingCryptoClient: DependencyKey {
                     networkId: networkId,
                     accountIndex: accountIndex
                 )
-                let voteRoundIdBytes = Data(hexString: sub.voteRoundId)
+                let voteRoundIdBytes = try voteRoundIdData(fromHex: sub.voteRoundId)
                 return DelegationRegistration(
                     rk: Data(sub.rk),
                     spendAuthSig: Data(sub.spendAuthSig),
@@ -465,6 +466,10 @@ extension VotingCryptoClient: DependencyKey {
                 let backend = try await dbActor.backend()
                 try backend.markVoteSubmitted(roundId: roundId, bundleIndex: bundleIndex, proposalId: proposalId)
                 publishState(backend: backend, roundId: roundId)
+            },
+            markVanAuthoritySpent: { roundId, bundleIndex, proposalId in
+                let backend = try await dbActor.backend()
+                try backend.markVanAuthoritySpent(roundId: roundId, bundleIndex: bundleIndex, proposalId: proposalId)
             },
             resetTreeClient: {
                 let backend = try await dbActor.backend()
@@ -529,7 +534,44 @@ extension VotingCryptoClient: DependencyKey {
             getVoteCommitmentBundle: { roundId, bundleIndex, proposalId in
                 let backend = try await dbActor.backend()
                 guard let result = try backend.getCommitmentBundle(roundId: roundId, bundleIndex: bundleIndex, proposalId: proposalId) else { return nil }
-                return try JSONDecoder().decode(VoteCommitmentBundle.self, from: Data(result.json.utf8))
+                let bundle = try JSONDecoder().decode(VoteCommitmentBundle.self, from: Data(result.json.utf8))
+                return VoteCommitmentBundleStored(bundle: bundle, vcTreePosition: result.vcTreePosition)
+            },
+            storeShareDelegationReceipt: { roundId, bundleIndex, proposalId, receipt in
+                let backend = try await dbActor.backend()
+                let enc = JSONEncoder()
+                enc.outputFormatting = [.sortedKeys]
+                let data = try enc.encode(receipt)
+                try backend.storeShareDelegationReceipt(
+                    roundId: roundId,
+                    bundleIndex: bundleIndex,
+                    proposalId: proposalId,
+                    receiptJson: [UInt8](data)
+                )
+            },
+            listShareDelegationReceipts: { roundId, bundleIndex, proposalId in
+                let backend = try await dbActor.backend()
+                let data = try backend.listShareDelegationReceiptsData(roundId: roundId, bundleIndex: bundleIndex, proposalId: proposalId)
+                return try JSONDecoder().decode([ShareDelegationReceipt].self, from: data)
+            },
+            clearShareDelegationReceiptsForVote: { roundId, bundleIndex, proposalId in
+                let backend = try await dbActor.backend()
+                try backend.clearShareDelegationReceipts(roundId: roundId, bundleIndex: bundleIndex, proposalId: proposalId)
+            },
+            markShareRevealedForHelper: { roundId, bundleIndex, proposalId, shareIndex, helperURL in
+                let backend = try await dbActor.backend()
+                try backend.markShareRevealedForHelper(
+                    roundId: roundId,
+                    bundleIndex: bundleIndex,
+                    proposalId: proposalId,
+                    shareIndex: shareIndex,
+                    helperURL: helperURL
+                )
+            },
+            listPendingShareReveals: {
+                let backend = try await dbActor.backend()
+                let data = try backend.listPendingShareRevealsData()
+                return try JSONDecoder().decode([PendingShareRevealGroup].self, from: data)
             },
             clearRecoveryState: { roundId in
                 let backend = try await dbActor.backend()
@@ -596,23 +638,55 @@ private extension VoteChoice {
     static func fromFFI(_ value: UInt32) -> VoteChoice { .option(value) }
 }
 
-public extension Data {
-    var hexString: String {
-        map { String(format: "%02x", $0) }.joined()
-    }
 
-    /// Initialize Data from a hex-encoded string (e.g. "0a1b2c").
-    init(hexString: String) {
-        var data = Data()
-        var hex = hexString
-        while hex.count >= 2 {
-            let byteString = String(hex.prefix(2))
-            hex = String(hex.dropFirst(2))
-            if let byte = UInt8(byteString, radix: 16) {
-                data.append(byte)
-            }
+/// Decodes a 32-byte vote round id from a 64-character hex string (optional `0x` prefix).
+/// Used when building `DelegationRegistration` so we never submit a corrupted `vote_round_id` silently.
+private func voteRoundIdData(fromHex hex: String) throws -> Data {
+    var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+    if s.hasPrefix("0x") || s.hasPrefix("0X") {
+        s.removeFirst(2)
+    }
+    guard s.count == 64 else {
+        throw VotingCryptoClientHexError.voteRoundIdLength(expectedHexChars: 64, actual: s.count)
+    }
+    var out = Data(count: 32)
+    let scalars = s.unicodeScalars
+    var iter = scalars.makeIterator()
+    for i in 0..<32 {
+        guard let hiScalar = iter.next(), let loScalar = iter.next() else {
+            throw VotingCryptoClientHexError.voteRoundIdInvalid
         }
-        self = data
+        guard let hi = hiScalar.hexNibble, let lo = loScalar.hexNibble else {
+            throw VotingCryptoClientHexError.voteRoundIdInvalid
+        }
+        out[i] = (hi << 4) | lo
+    }
+    return out
+}
+
+private enum VotingCryptoClientHexError: LocalizedError {
+    case voteRoundIdLength(expectedHexChars: Int, actual: Int)
+    case voteRoundIdInvalid
+
+    var errorDescription: String? {
+        switch self {
+        case .voteRoundIdLength(let expected, let actual):
+            return "vote_round_id hex must be exactly \(expected) characters, got \(actual)"
+        case .voteRoundIdInvalid:
+            return "vote_round_id hex contains non-hexadecimal characters"
+        }
+    }
+}
+
+private extension UnicodeScalar {
+    /// 0–9, a–f, A–F → nibble; else nil.
+    var hexNibble: UInt8? {
+        switch value {
+        case 0x30...0x39: return UInt8(value - 0x30)
+        case 0x41...0x46: return UInt8(value - 0x41) + 10
+        case 0x61...0x66: return UInt8(value - 0x61) + 10
+        default: return nil
+        }
     }
 }
 

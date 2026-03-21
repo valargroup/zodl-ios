@@ -27,7 +27,17 @@ public struct VotingAPIClient {
     public var submitDelegation: @Sendable (_ registration: DelegationRegistration) async throws -> TxResult
     public var submitVoteCommitment: @Sendable (_ bundle: VoteCommitmentBundle, _ signature: CastVoteSignature) async throws -> TxResult
     /// Distribute shares across available vote servers. Config must be set via `configureURLs` first.
-    public var delegateShares: @Sendable (_ payloads: [SharePayload], _ roundIdHex: String) async throws -> Void
+    /// Returns one receipt per successful helper POST, with `seq` ordering targets for status polling.
+    public var delegateShares: @Sendable (_ payloads: [SharePayload], _ roundIdHex: String) async throws -> [ShareDelegationReceipt]
+        = { _, _ in [] }
+    /// Poll share submission status on the **same** helper host that accepted the share (`roundId` + nullifier hex).
+    public var fetchShareSubmissionStatus: @Sendable (
+        _ helperURL: String, _ roundIdHex: String, _ nullifierHex: String
+    ) async throws -> String
+        = { _, _, _ in "confirmed" }
+    /// Re-POST a share to a specific helper (same body as delegation). Returns true if queued/duplicate.
+    public var resubmitShare: @Sendable (_ payload: SharePayload, _ roundIdHex: String, _ helperURL: String) async throws -> Bool
+        = { _, _, _ in false }
     public var fetchProposalTally: @Sendable (_ roundId: Data, _ proposalId: UInt32) async throws -> TallyResult
     /// Query the Cosmos SDK TX endpoint for a confirmed transaction and its ABCI events.
     /// Returns nil if the TX is not yet in a block (404 or network error).

@@ -511,6 +511,17 @@ public struct VoteCommitmentBundle: Equatable, Sendable, Codable {
     }
 }
 
+/// Vote commitment bundle as stored in the voting DB, including the VC leaf index from chain.
+public struct VoteCommitmentBundleStored: Equatable, Sendable {
+    public let bundle: VoteCommitmentBundle
+    public let vcTreePosition: UInt64
+
+    public init(bundle: VoteCommitmentBundle, vcTreePosition: UInt64) {
+        self.bundle = bundle
+        self.vcTreePosition = vcTreePosition
+    }
+}
+
 /// Payload sent to helper servers for share delegation (not directly to chain).
 public struct SharePayload: Equatable, Sendable {
     public let sharesHash: Data
@@ -526,11 +537,13 @@ public struct SharePayload: Equatable, Sendable {
     public let primaryBlind: Data
     /// Unix seconds at which the helper should submit the share; 0 = immediate (last-moment).
     public var submitAt: UInt64
+    /// Deterministic share nullifier (32 bytes) for `GET /api/v1/share-status/{roundId}/{nullifier}`.
+    public let shareNullifier: Data
 
     public init(
         sharesHash: Data, proposalId: UInt32, voteDecision: UInt32, encShare: EncryptedShare,
         treePosition: UInt64, allEncShares: [EncryptedShare] = [], shareComms: [Data] = [],
-        primaryBlind: Data = Data(), submitAt: UInt64 = 0
+        primaryBlind: Data = Data(), submitAt: UInt64 = 0, shareNullifier: Data = Data()
     ) {
         self.sharesHash = sharesHash
         self.proposalId = proposalId
@@ -541,6 +554,96 @@ public struct SharePayload: Equatable, Sendable {
         self.shareComms = shareComms
         self.primaryBlind = primaryBlind
         self.submitAt = submitAt
+        self.shareNullifier = shareNullifier
+    }
+}
+
+/// One helper server that accepted a share; status polling uses the deterministic share nullifier.
+public struct ShareDelegationReceipt: Equatable, Sendable, Codable {
+    public var shareIndex: UInt32
+    public var helperURL: String
+    public var shareNullifier: Data
+    /// Order within this share's targets (first = primary polling server).
+    public var seq: UInt32
+    /// Unix seconds when the helper should reveal; 0 = immediate.
+    public var submitAt: UInt64
+    /// Whether on-chain confirmation was observed for this helper/nullifier row.
+    public var revealConfirmed: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case shareIndex = "share_index"
+        case helperURL = "helper_url"
+        case shareNullifier = "share_nullifier"
+        case seq
+        case submitAt = "submit_at"
+        case revealConfirmed = "reveal_confirmed"
+    }
+
+    public init(
+        shareIndex: UInt32,
+        helperURL: String,
+        shareNullifier: Data,
+        seq: UInt32,
+        submitAt: UInt64 = 0,
+        revealConfirmed: Bool = false
+    ) {
+        self.shareIndex = shareIndex
+        self.helperURL = helperURL
+        self.shareNullifier = shareNullifier
+        self.seq = seq
+        self.submitAt = submitAt
+        self.revealConfirmed = revealConfirmed
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        shareIndex = try c.decode(UInt32.self, forKey: .shareIndex)
+        helperURL = try c.decode(String.self, forKey: .helperURL)
+        let hexStr = try c.decode(String.self, forKey: .shareNullifier)
+        let parsed = Data(hexString: hexStr)
+        guard parsed.count == 32 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .shareNullifier,
+                in: c,
+                debugDescription: "share_nullifier must be 64 hex chars (32 bytes)"
+            )
+        }
+        shareNullifier = parsed
+        seq = try c.decode(UInt32.self, forKey: .seq)
+        submitAt = try c.decodeIfPresent(UInt64.self, forKey: .submitAt) ?? 0
+        revealConfirmed = try c.decodeIfPresent(Bool.self, forKey: .revealConfirmed) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(shareIndex, forKey: .shareIndex)
+        try c.encode(helperURL, forKey: .helperURL)
+        try c.encode(shareNullifier.hexString, forKey: .shareNullifier)
+        try c.encode(seq, forKey: .seq)
+        try c.encode(submitAt, forKey: .submitAt)
+        try c.encode(revealConfirmed, forKey: .revealConfirmed)
+    }
+}
+
+/// Pending share-reveal work for one `(round, bundle, proposal)` from the voting DB.
+public struct PendingShareRevealGroup: Equatable, Sendable, Codable {
+    public var roundId: String
+    public var bundleIndex: UInt32
+    public var proposalId: UInt32
+    public var receipts: [ShareDelegationReceipt]
+
+    enum CodingKeys: String, CodingKey {
+        case roundId = "round_id"
+        case bundleIndex = "bundle_index"
+        case proposalId = "proposal_id"
+        case receipts
+    }
+
+    public init(roundId: String, bundleIndex: UInt32, proposalId: UInt32, receipts: [ShareDelegationReceipt]) {
+        self.roundId = roundId
+        self.bundleIndex = bundleIndex
+        self.proposalId = proposalId
+        self.receipts = receipts
     }
 }
 
@@ -782,4 +885,25 @@ public enum ProofEvent: Equatable, Sendable {
 public enum VoteCommitmentBuildEvent: Equatable, Sendable {
     case progress(Double)
     case completed(VoteCommitmentBundle)
+}
+
+// MARK: - Data Hex Helpers
+
+public extension Data {
+    var hexString: String {
+        map { String(format: "%02x", $0) }.joined()
+    }
+
+    init(hexString: String) {
+        var data = Data()
+        var hex = hexString
+        while hex.count >= 2 {
+            let byteString = String(hex.prefix(2))
+            hex = String(hex.dropFirst(2))
+            if let byte = UInt8(byteString, radix: 16) {
+                data.append(byte)
+            }
+        }
+        self = data
+    }
 }

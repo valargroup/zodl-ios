@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "vote_servers": [
+    {
+      "url": "http://127.0.0.1:1318",
+      "label": "Local svoted (simulator → Mac host)"
+    }
+  ],
+  "pir_servers": [
+    {
+      "url": "https://46-101-255-48.sslip.io/nullifier",
+      "label": "Hosted nullifier / PIR (IMT proofs)"
+    }
+  ]
+}

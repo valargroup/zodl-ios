@@ -185,9 +185,12 @@ extension Root {
             case .home(.votingBannerTapped):
                 guard let account = state.selectedWalletAccount else { return .none }
                 state.homeState.moreRequest = false
-                state.votingState = .initial
+                let walletId = account.id.id.map { String(format: "%02x", $0) }.joined()
+                if state.votingState.walletId != walletId {
+                    state.votingState = .initial
+                    state.votingState.walletId = walletId
+                }
                 state.votingState.isKeystoneUser = state.homeState.isKeystoneAccountActive
-                state.votingState.walletId = account.id.id.map { String(format: "%02x", $0) }.joined()
                 state.path = .voting
                 return .none
 
