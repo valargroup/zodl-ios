@@ -136,6 +136,44 @@ public struct RelayStatusResponse: Codable, Equatable {
     }
 }
 
+// MARK: - Transfer
+
+public struct TransferRequest: Codable, Equatable {
+    public let senderAddress: String
+    public let recipientAddress: String
+    public let amount: String
+
+    public init(senderAddress: String, recipientAddress: String, amount: String) {
+        self.senderAddress = senderAddress
+        self.recipientAddress = recipientAddress
+        self.amount = amount
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case senderAddress = "sender_address"
+        case recipientAddress = "recipient_address"
+        case amount
+    }
+}
+
+public struct TransferResponse: Codable, Equatable {
+    public let senderAddress: String
+    public let recipientAddress: String
+    public let amount: String
+    public let senderBalance: String
+    public let recipientBalance: String
+    public let txId: String
+
+    enum CodingKeys: String, CodingKey {
+        case senderAddress = "sender_address"
+        case recipientAddress = "recipient_address"
+        case amount
+        case senderBalance = "sender_balance"
+        case recipientBalance = "recipient_balance"
+        case txId = "tx_id"
+    }
+}
+
 // MARK: - Balance
 
 public struct MockBalanceResponse: Codable, Equatable {

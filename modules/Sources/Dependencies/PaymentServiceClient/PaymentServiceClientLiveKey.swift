@@ -115,6 +115,9 @@ extension PaymentServiceClient: DependencyKey {
             getRelayStatus: { relayId, encapsId in
                 try await get("/relay/\(relayId)/status/\(encapsId)")
             },
+            transfer: { request in
+                try await post("/transfer", body: request)
+            },
             getBalance: { address in
                 try await get("/balance/\(address)")
             }

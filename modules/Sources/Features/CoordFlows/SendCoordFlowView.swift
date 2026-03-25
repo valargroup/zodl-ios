@@ -59,6 +59,8 @@ public struct SendCoordFlowView: View {
                     AddressBookContactView(store: store)
                 case let .confirmWithKeystone(store):
                     SignWithKeystoneView(store: store, tokenName: tokenName)
+                case let .directSend(store):
+                    DirectSendView(store: store, tokenName: tokenName)
                 case let .paymentLinkFlow(store):
                     PaymentLinkFlowView(store: store)
                 case let .publicPaymentSender(store):

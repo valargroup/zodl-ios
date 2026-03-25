@@ -227,6 +227,11 @@ extension SendCoordFlow {
                 state.path.append(.paymentLinkFlow(plState))
                 return .none
 
+            case .path(.element(id: _, action: .directSend(.closeTapped))),
+                 .path(.element(id: _, action: .directSend(.backTapped))):
+                state.path.removeAll()
+                return .none
+
             case .path(.element(id: _, action: .paymentLinkFlow(.closeTapped))),
                  .path(.element(id: _, action: .paymentLinkFlow(.backTapped))):
                 state.path.removeAll()
@@ -253,9 +258,20 @@ extension SendCoordFlow {
                 return .none
                 
             case .sendForm(.confirmationRequired(let confirmationType)):
-                // Route pub1/dyn1 addresses to the relay sender flow (mock addresses)
                 let addr = state.sendFormState.address.data
-                if confirmationType == .send && (addr.hasPrefix("pub1") || addr.hasPrefix("dyn1")) {
+
+                // Route dyn1 addresses to direct send (PIR resolve → transfer)
+                if confirmationType == .send && addr.hasPrefix("dyn1") {
+                    var sendState = DirectSend.State()
+                    sendState.recipientAddress = addr
+                    sendState.senderAddress = state.sendFormState.selectedWalletAccount?.privateUnifiedAddress ?? "demo-sender"
+                    sendState.amount = state.sendFormState.amount.decimalString()
+                    state.path.append(.directSend(sendState))
+                    return .none
+                }
+
+                // Route pub1 addresses to relay sender flow
+                if confirmationType == .send && addr.hasPrefix("pub1") {
                     var senderState = PublicPaymentSender.State()
                     senderState.recipientAddress = addr
                     senderState.amount = state.sendFormState.amount.decimalString()

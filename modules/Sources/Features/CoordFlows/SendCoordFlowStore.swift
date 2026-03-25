@@ -29,6 +29,7 @@ public struct SendCoordFlow {
         case addressBook(AddressBook)
         case addressBookContact(AddressBook)
         case confirmWithKeystone(SendConfirmation)
+        case directSend(DirectSend)
         case paymentLinkFlow(PaymentLinkFlow)
         case preSendingFailure(SendConfirmation)
         case publicPaymentSender(PublicPaymentSender)

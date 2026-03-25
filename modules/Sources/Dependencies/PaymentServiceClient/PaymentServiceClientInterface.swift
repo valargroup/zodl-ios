@@ -23,6 +23,8 @@ public struct PaymentServiceClient {
     public var getRelayPubkey: @Sendable (_ relayId: String) async throws -> RelayPubkeyResponse
     public var postRelayEncaps: @Sendable (_ relayId: String, _ request: RelayEncapsRequest) async throws -> RelayStatusResponse
     public var getRelayStatus: @Sendable (_ relayId: String, _ encapsId: String) async throws -> RelayStatusResponse
+    // Transfer
+    public var transfer: @Sendable (_ request: TransferRequest) async throws -> TransferResponse
     // Balance
     public var getBalance: @Sendable (_ address: String) async throws -> MockBalanceResponse
 }
