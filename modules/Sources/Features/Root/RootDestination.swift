@@ -65,7 +65,18 @@ extension Root {
                 return .none
 
             case .destination(.deeplink(let url)):
-                // Check for payment link (ZIP-324) URLs
+                // Check for payment link URLs
+                // Supports both:
+                //   zcashpay://claim?id=...&amount=...  (custom scheme, works on simulator)
+                //   https://pay.withzcash.com:65536/payment/v1#id=...  (production format)
+                if url.scheme == "zcashpay" {
+                    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+                    let linkId = components?.queryItems?.first(where: { $0.name == "id" })?.value ?? ""
+                    let amount = components?.queryItems?.first(where: { $0.name == "amount" })?.value ?? ""
+                    if !linkId.isEmpty {
+                        return .send(.destination(.deeplinkClaimPayment(linkId, amount)))
+                    }
+                }
                 if let fragment = url.fragment,
                    url.host == "pay.withzcash.com" || url.absoluteString.contains("pay.withzcash.com") {
                     let params = Self.parseFragment(fragment)

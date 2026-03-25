@@ -93,7 +93,8 @@ public struct PaymentLinkFlow {
                     let encoded = desc.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed) ?? desc
                     fragment += "&desc=\(encoded)"
                 }
-                state.qrContent = "https://pay.withzcash.com:65536/payment/v1#\(fragment)"
+                // Use custom URL scheme so it opens in the app directly
+                state.qrContent = "zcashpay://claim?id=\(response.id)&amount=\(response.amount)"
                 state.screen = .linkReady
                 return .none
 
