@@ -6,6 +6,7 @@ import ZcashLightClientKit
 import Utils
 import Models
 import Generated
+import PaymentServiceClient
 import ReviewRequest
 import TransactionList
 import Scan
@@ -36,6 +37,7 @@ public struct Home {
         public var smartBannerState = SmartBanner.State.initial
         public var walletConfig: WalletConfig
         @Shared(.inMemory(.mockBalance)) public var mockBalance: String = "0"
+        public var mockTransactions: [MockTransactionEntry] = []
         @Shared(.inMemory(.selectedWalletAccount)) public var selectedWalletAccount: WalletAccount? = nil
         public var transactionListState: TransactionList.State
         @Shared(.inMemory(.walletAccounts)) public var walletAccounts: [WalletAccount] = []
@@ -123,6 +125,7 @@ public struct Home {
         case fundWalletTapped
         case fundWalletCompleted(String)
         case refreshMockBalance
+        case mockTransactionsLoaded([MockTransactionEntry])
         case resetDemoState
         case tachyonDemoTapped
     }
@@ -376,6 +379,10 @@ public struct Home {
                 return .none
 
             case .refreshMockBalance:
+                return .none
+
+            case let .mockTransactionsLoaded(txs):
+                state.mockTransactions = txs
                 return .none
 
             case .resetDemoState:

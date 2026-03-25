@@ -2,6 +2,7 @@ import SwiftUI
 import ComposableArchitecture
 import StoreKit
 import Generated
+import PaymentServiceClient
 import TransactionList
 import Settings
 import UIComponents
@@ -121,22 +122,19 @@ public struct HomeView: View {
                 )
 
                 ScrollView {
-                    if store.transactionListState.transactions.isEmpty && !store.transactionListState.isInvalidated {
-                        noTransactionsView()
+                    if store.mockTransactions.isEmpty {
+                        VStack(spacing: 12) {
+                            Text("No transactions yet")
+                                .zFont(size: 14, style: Design.Text.tertiary)
+                                .padding(.top, 40)
+                        }
                     } else {
                         VStack(spacing: 0) {
-                            transactionsView()
-                            
-                            TransactionListView(
-                                store:
-                                    store.scope(
-                                        state: \.transactionListState,
-                                        action: \.transactionList
-                                    ),
-                                tokenName: tokenName,
-                                scrollable: false
-                            )
+                            ForEach(store.mockTransactions) { tx in
+                                mockTransactionRow(tx)
+                            }
                         }
+                        .padding(.horizontal, 16)
                     }
                 }
             }
@@ -277,6 +275,49 @@ public struct HomeView: View {
         }
     }
     
+    @ViewBuilder private func mockTransactionRow(_ tx: MockTransactionEntry) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: tx.direction == "sent" ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                .font(.system(size: 24))
+                .foregroundStyle(tx.direction == "sent"
+                    ? Design.Text.primary.color(colorScheme)
+                    : Design.Utility.SuccessGreen._600.color(colorScheme))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(txTypeLabel(tx.txType))
+                    .zFont(.medium, size: 14, style: Design.Text.primary)
+                Text(tx.counterparty)
+                    .zFont(size: 12, style: Design.Text.tertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(tx.direction == "sent" ? "-" : "+")\(tx.amount) ZEC")
+                    .zFont(.semiBold, size: 14, style: tx.direction == "sent"
+                        ? Design.Text.primary
+                        : Design.Utility.SuccessGreen._600)
+                Text(tx.timestamp)
+                    .zFont(size: 12, style: Design.Text.tertiary)
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 4)
+    }
+
+    private func txTypeLabel(_ type: String) -> String {
+        switch type {
+        case "send": return "Sent"
+        case "receive": return "Received"
+        case "payment_link_created": return "Payment Link"
+        case "payment_link_claimed": return "Claimed"
+        case "relay_send": return "Relay Payment"
+        case "fund": return "Funded"
+        default: return type
+        }
+    }
+
     @ViewBuilder private func button(
         _ title: String,
         icon: Image,

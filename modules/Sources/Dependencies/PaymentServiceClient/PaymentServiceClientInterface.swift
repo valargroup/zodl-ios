@@ -27,6 +27,8 @@ public struct PaymentServiceClient {
     public var transfer: @Sendable (_ request: TransferRequest) async throws -> TransferResponse
     // Address alias
     public var registerAlias: @Sendable (_ alias: String, _ owner: String) async throws -> Void
+    // Transactions
+    public var getTransactions: @Sendable (_ address: String) async throws -> MockTransactionListResponse
     // Balance
     public var getBalance: @Sendable (_ address: String) async throws -> MockBalanceResponse
 }

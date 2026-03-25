@@ -27,7 +27,10 @@ extension Root {
                 return refreshMockBalance(state: &state)
 
             case .home(.refreshMockBalance):
-                return refreshMockBalance(state: &state)
+                return .merge(
+                    refreshMockBalance(state: &state),
+                    fetchMockTransactions(state: &state)
+                )
                 
                 // MARK: - Accounts
 
@@ -467,5 +470,15 @@ extension Root {
         } catch: { error, _ in
             print("[MockBalance] refresh failed: \(error)")
         }
+    }
+
+    private func fetchMockTransactions(state: inout Root.State) -> Effect<Root.Action> {
+        let address = state.selectedWalletAccount?.unifiedAddress ?? ""
+        guard !address.isEmpty else { return .none }
+        return .run { send in
+            @Dependency(\.paymentServiceClient) var paymentServiceClient
+            let response = try await paymentServiceClient.getTransactions(address)
+            await send(.home(.mockTransactionsLoaded(response.transactions)))
+        } catch: { _, _ in }
     }
 }

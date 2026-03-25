@@ -440,6 +440,7 @@ let package = Package(
                 "Generated",
                 "Models",
                 "PartnerKeys",
+                "PaymentServiceClient",
                 "ReviewRequest",
                 "Scan",
                 "SDKSynchronizer",

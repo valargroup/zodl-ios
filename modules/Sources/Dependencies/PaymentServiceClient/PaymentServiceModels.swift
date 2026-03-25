@@ -186,6 +186,27 @@ public struct RegisterAliasRequest: Codable {
     }
 }
 
+// MARK: - Transactions
+
+public struct MockTransactionEntry: Codable, Equatable, Identifiable {
+    public let id: String
+    public let txType: String
+    public let counterparty: String
+    public let amount: String
+    public let direction: String
+    public let timestamp: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case txType = "tx_type"
+        case counterparty, amount, direction, timestamp
+    }
+}
+
+public struct MockTransactionListResponse: Codable, Equatable {
+    public let transactions: [MockTransactionEntry]
+}
+
 // MARK: - Balance
 
 public struct MockBalanceResponse: Codable, Equatable {

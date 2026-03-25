@@ -122,6 +122,9 @@ extension PaymentServiceClient: DependencyKey {
                 struct AliasResponse: Codable { let alias: String; let owner: String }
                 let _: AliasResponse = try await post("/address/alias", body: RegisterAliasRequest(alias: alias, owner: owner))
             },
+            getTransactions: { address in
+                try await get("/transactions/\(address)")
+            },
             getBalance: { address in
                 try await get("/balance/\(address)")
             }
