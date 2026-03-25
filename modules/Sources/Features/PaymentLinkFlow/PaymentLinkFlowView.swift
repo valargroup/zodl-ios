@@ -137,6 +137,16 @@ public struct PaymentLinkFlowView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
+        .sheet(isPresented: Binding(
+            get: { store.isSharePresented },
+            set: { newValue in
+                if !newValue { store.send(.shareFinished) }
+            }
+        )) {
+            if !store.qrContent.isEmpty {
+                ShareSheet(activityItems: [store.qrContent])
+            }
+        }
     }
 
     // MARK: - Processing
@@ -240,6 +250,18 @@ public struct PaymentLinkFlowView: View {
         }
         store.send(.amountChanged(current))
     }
+}
+
+// MARK: - Share Sheet
+
+private struct ShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Placeholder
