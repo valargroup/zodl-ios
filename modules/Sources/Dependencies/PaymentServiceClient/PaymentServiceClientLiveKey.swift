@@ -8,7 +8,13 @@ private let logger = Logger(subsystem: "co.zodl.payment", category: "PaymentServ
 
 actor PaymentServiceConfigStore {
     static let shared = PaymentServiceConfigStore()
-    var baseURL = "http://localhost:3100"
+    /// Default: deployed service. Override with PAYMENT_SERVICE_URL env var for local dev.
+    var baseURL: String = {
+        if let envURL = ProcessInfo.processInfo.environment["PAYMENT_SERVICE_URL"] {
+            return envURL
+        }
+        return "https://pay.164-92-225-227.sslip.io"
+    }()
 }
 
 // MARK: - Errors
