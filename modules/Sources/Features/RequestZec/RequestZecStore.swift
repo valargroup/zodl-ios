@@ -105,9 +105,25 @@ public struct RequestZec {
                 return .none
 
             case .generateQRCode:
+                // Fallback for mock addresses (dyn1, pub1) that aren't recognized by ZIP-321 parser
+                if state.address.data.hasPrefix("dyn1") || state.address.data.hasPrefix("pub1") {
+                    let amount = state.requestedZec.decimalString()
+                    let encryptedOutput = "zcash:\(state.address.data)?amount=\(amount)"
+                    state.encryptedOutput = encryptedOutput
+                    return .publisher {
+                        QRCodeGenerator.generate(
+                            from: encryptedOutput,
+                            maxPrivacy: state.maxPrivacy,
+                            vendor: .zashi,
+                            color: Asset.Colors.primary.systemColor
+                        )
+                        .map(Action.rememberQR)
+                    }
+                    .cancellable(id: state.cancelId)
+                }
+
                 if let recipient = RecipientAddress(value: state.address.data, context: ParserContext.from(networkType: zcashSDKEnvironment.network.networkType)) {
                     do {
-                        // TODO: handle this error. there's a problem either with the recipient address or the amount requested
                         let payment = try Payment(
                             recipientAddress: recipient,
                             amount: try Amount(value: state.requestedZec.decimalValue.doubleValue),
@@ -116,7 +132,7 @@ public struct RequestZec {
                             message: nil,
                             otherParams: nil
                         )
-                        
+
                         let encryptedOutput = ZIP321.request(payment, formattingOptions: .useEmptyParamIndex(omitAddressLabel: true))
                         state.encryptedOutput = encryptedOutput
                         return .publisher {
@@ -136,6 +152,23 @@ public struct RequestZec {
                 return .none
                 
             case .generateEnlargedQRCode:
+                // Fallback for mock addresses (dyn1, pub1)
+                if state.address.data.hasPrefix("dyn1") || state.address.data.hasPrefix("pub1") {
+                    let amount = state.requestedZec.decimalString()
+                    let encryptedOutput = "zcash:\(state.address.data)?amount=\(amount)"
+                    state.encryptedOutput = encryptedOutput
+                    return .publisher {
+                        QRCodeGenerator.generate(
+                            from: encryptedOutput,
+                            maxPrivacy: state.maxPrivacy,
+                            vendor: .zashi,
+                            color: .black
+                        )
+                        .map(Action.rememberEnlargedQR)
+                    }
+                    .cancellable(id: state.cancelId)
+                }
+
                 if let recipient = RecipientAddress(value: state.address.data, context: ParserContext.from(networkType: zcashSDKEnvironment.network.networkType)) {
                     do {
                         let payment = try Payment(
@@ -146,7 +179,7 @@ public struct RequestZec {
                             message: nil,
                             otherParams: nil
                         )
-                        
+
                         let encryptedOutput = ZIP321.request(payment, formattingOptions: .useEmptyParamIndex(omitAddressLabel: true))
                         state.encryptedOutput = encryptedOutput
                         return .publisher {

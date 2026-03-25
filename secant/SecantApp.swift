@@ -46,7 +46,9 @@ struct SecantApp: App {
                 appDelegate.scheduleSchedulerBackgroundTask()
             }
             .onOpenURL { url in
-                if featureFlags.flexa {
+                if url.scheme == "zcashpay" {
+                    appDelegate.rootStore.goToDeeplink(url)
+                } else if featureFlags.flexa {
                     Flexa.processUniversalLink(url: url)
                 }
             }
