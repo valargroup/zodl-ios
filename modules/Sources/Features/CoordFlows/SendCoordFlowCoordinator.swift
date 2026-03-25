@@ -396,7 +396,9 @@ extension SendCoordFlow {
         return .run { [mockBalance = state.$mockBalance] _ in
             @Dependency(\.paymentServiceClient) var paymentServiceClient
             let response = try await paymentServiceClient.getBalance(address)
-            mockBalance.withLock { $0 = response.balance }
+            if response.balanceZatoshi > 0 {
+                mockBalance.withLock { $0 = response.balance }
+            }
         } catch: { _, _ in }
     }
 }
