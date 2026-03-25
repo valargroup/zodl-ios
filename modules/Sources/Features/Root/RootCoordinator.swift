@@ -187,7 +187,7 @@ extension Root {
                 // MARK: - Tachyon Demo
 
             case .home(.fundWalletTapped):
-                let walletAddress = state.selectedWalletAccount?.privateUnifiedAddress ?? "demo-wallet"
+                let walletAddress = state.selectedWalletAccount?.unifiedAddress ?? "demo-wallet"
                 return .run { send in
                     @Dependency(\.paymentServiceClient) var paymentServiceClient
                     let response = try await paymentServiceClient.getBalance(walletAddress)
@@ -436,7 +436,7 @@ extension Root {
     }
 
     private func refreshMockBalance(state: inout Root.State) -> Effect<Root.Action> {
-        let address = state.selectedWalletAccount?.privateUnifiedAddress ?? ""
+        let address = state.selectedWalletAccount?.unifiedAddress ?? ""
         guard !address.isEmpty else {
             print("[MockBalance] refresh skipped — no address")
             return .none

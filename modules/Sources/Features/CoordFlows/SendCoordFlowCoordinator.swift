@@ -222,7 +222,7 @@ extension SendCoordFlow {
                 
             case .sendForm(.createPaymentLinkTapped):
                 var plState = PaymentLinkFlow.State()
-                plState.senderAddress = state.sendFormState.selectedWalletAccount?.privateUnifiedAddress ?? "demo-sender"
+                plState.senderAddress = state.sendFormState.selectedWalletAccount?.unifiedAddress ?? "demo-sender"
                 plState.balance = state.sendFormState.mockBalance
                 state.path.append(.paymentLinkFlow(plState))
                 return .none
@@ -264,7 +264,7 @@ extension SendCoordFlow {
                 if confirmationType == .send && addr.hasPrefix("dyn1") {
                     var sendState = DirectSend.State()
                     sendState.recipientAddress = addr
-                    sendState.senderAddress = state.sendFormState.selectedWalletAccount?.privateUnifiedAddress ?? "demo-sender"
+                    sendState.senderAddress = state.sendFormState.selectedWalletAccount?.unifiedAddress ?? "demo-sender"
                     sendState.amount = state.sendFormState.amount.decimalString()
                     state.path.append(.directSend(sendState))
                     return .none
@@ -391,7 +391,7 @@ extension SendCoordFlow {
     }
 
     private func refreshMockBalance(state: inout SendCoordFlow.State) -> Effect<SendCoordFlow.Action> {
-        let address = state.sendFormState.selectedWalletAccount?.privateUnifiedAddress ?? ""
+        let address = state.sendFormState.selectedWalletAccount?.unifiedAddress ?? ""
         guard !address.isEmpty else { return .none }
         return .run { [mockBalance = state.$mockBalance] _ in
             @Dependency(\.paymentServiceClient) var paymentServiceClient
