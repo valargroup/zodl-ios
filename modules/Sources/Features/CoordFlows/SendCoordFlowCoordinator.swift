@@ -395,8 +395,8 @@ extension SendCoordFlow {
         return .run { _ in
             @Dependency(\.paymentServiceClient) var paymentServiceClient
             let response = try await paymentServiceClient.getBalance(address)
-            @Shared(.inMemory(.mockBalance)) var mockBalance
-            $mockBalance.withLock { $0 = response.balance }
+            let shared = Shared<String>(.inMemory(.mockBalance))
+            shared.withLock { $0 = response.balance }
         } catch: { _, _ in }
     }
 }
