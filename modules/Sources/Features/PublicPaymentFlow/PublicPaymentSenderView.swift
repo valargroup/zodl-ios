@@ -163,7 +163,6 @@ public struct PublicPaymentSenderView: View {
             .padding(.bottom, 24)
         }
     }
-}
 
     // MARK: - Failed
 
