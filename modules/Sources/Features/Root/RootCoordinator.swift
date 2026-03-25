@@ -437,13 +437,19 @@ extension Root {
 
     private func refreshMockBalance(state: inout Root.State) -> Effect<Root.Action> {
         let address = state.selectedWalletAccount?.privateUnifiedAddress ?? ""
-        guard !address.isEmpty else { return .none }
+        guard !address.isEmpty else {
+            print("[MockBalance] refresh skipped — no address")
+            return .none
+        }
+        let currentBalance = state.mockBalance
         return .run { [mockBalance = state.$mockBalance] _ in
             @Dependency(\.paymentServiceClient) var paymentServiceClient
+            print("[MockBalance] refreshing for \(address.prefix(20))... (current: \(currentBalance))")
             let response = try await paymentServiceClient.getBalance(address)
+            print("[MockBalance] server returned: \(response.balance)")
             mockBalance.withLock { $0 = response.balance }
-        } catch: { _, _ in
-            // Service unreachable — keep existing balance
+        } catch: { error, _ in
+            print("[MockBalance] refresh failed: \(error)")
         }
     }
 }
