@@ -211,11 +211,27 @@ extension Root {
                 return .none
 
             case .home(.resetDemoState):
-                state.$mockBalance.withLock { $0 = "0" }
                 state.$publicDonationAddress.withLock { $0 = "" }
                 state.$publicDonationRelayId.withLock { $0 = "" }
-                state.$toast.withLock { $0 = .top("Demo state reset") }
-                return .none
+                let walletAddress = state.selectedWalletAccount?.unifiedAddress ?? ""
+                state.$mockBalance.withLock { $0 = "0" }
+                return .run { [mockBalance = state.$mockBalance] _ in
+                    // Drain wallet balance back to faucet on the server
+                    @Dependency(\.paymentServiceClient) var paymentServiceClient
+                    if !walletAddress.isEmpty {
+                        let bal = try await paymentServiceClient.getBalance(walletAddress)
+                        if bal.balanceZatoshi > 0 {
+                            _ = try await paymentServiceClient.transfer(
+                                TransferRequest(
+                                    senderAddress: walletAddress,
+                                    recipientAddress: "faucet",
+                                    amount: bal.balance
+                                )
+                            )
+                        }
+                    }
+                    mockBalance.withLock { $0 = "0" }
+                } catch: { _, _ in }
 
             case .home(.tachyonDemoTapped):
                 state.homeState.moreRequest = false
