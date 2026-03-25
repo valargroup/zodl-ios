@@ -9,7 +9,7 @@ import PaymentServiceClient
 
 @Reducer
 public struct PublicPaymentSender {
-    private enum CancelID { case polling }
+    private enum CancelID { case stepping }
 
     @ObservableState
     public struct State: Equatable {
@@ -25,8 +25,6 @@ public struct PublicPaymentSender {
         public var recipientAddress: String = ""
         public var amount: String = ""
         public var relayStep: RelayStep = .confirm
-        public var relayId: String?
-        public var encapsId: String?
         public var relayFee: String = "0.0001"
         public var error: String?
 
@@ -41,17 +39,11 @@ public struct PublicPaymentSender {
 
     public enum Action: Equatable {
         case confirmTapped
-        case encapsPosted(RelayStatusResponse)
-        case encapsFailed(String)
-        case pollRelayStatus
-        case statusUpdated(RelayStatusResponse)
-        case pollFailed(String)
-        case sendCompleted
+        case advanceStep
         case closeTapped
         case backTapped
     }
 
-    @Dependency(\.paymentServiceClient) var paymentServiceClient
     @Dependency(\.continuousClock) var clock
 
     public init() {}
@@ -61,95 +53,48 @@ public struct PublicPaymentSender {
             switch action {
             case .confirmTapped:
                 state.relayStep = .talkingToRelay
-
-                // Extract relay ID from pub1 address by querying relay
-                // In a real app, the pub1 address would encode the relay ID
-                // For the mock, we derive it from the address
-                let address = state.recipientAddress
-                let amount = state.amount
-
-                return .run { send in
-                    // Post encapsulation to relay
-                    // For the mock, we need to find the relay ID from the address
-                    // The mock service resolves pub1 addresses through the relay store
-                    let request = RelayEncapsRequest(
-                        ciphertext: "mock-mlkem-ct-\(UUID().uuidString.prefix(8))",
-                        amount: amount,
-                        senderAddress: address
-                    )
-
-                    // Try to find a relay matching this address
-                    // For demo purposes, we'll use a hardcoded relay ID approach
-                    // In production, the address itself encodes the relay info
-                    let relayId = "demo-relay"
-                    let response = try await paymentServiceClient.postRelayEncaps(relayId, request)
-                    await send(.encapsPosted(response))
-                } catch: { error, send in
-                    await send(.encapsFailed(error.localizedDescription))
-                }
-
-            case let .encapsPosted(response):
-                state.encapsId = response.encapsId
-                state.relayStep = .talkingToRelay
-                // Start polling
                 return .run { send in
                     try await clock.sleep(for: .seconds(2))
-                    await send(.pollRelayStatus)
+                    await send(.advanceStep)
                 }
-                .cancellable(id: CancelID.polling)
+                .cancellable(id: CancelID.stepping)
 
-            case let .encapsFailed(message):
-                state.error = message
-                state.relayStep = .confirm
-                return .none
-
-            case .pollRelayStatus:
-                guard let relayId = state.relayId ?? Optional("demo-relay"),
-                      let encapsId = state.encapsId else { return .none }
-
-                return .run { send in
-                    let response = try await paymentServiceClient.getRelayStatus(relayId, encapsId)
-                    await send(.statusUpdated(response))
-                } catch: { error, send in
-                    await send(.pollFailed(error.localizedDescription))
-                }
-
-            case let .statusUpdated(response):
-                // Map the server step to our UI step
-                switch response.step {
-                case 1:
-                    state.relayStep = .talkingToRelay
-                case 2:
+            case .advanceStep:
+                switch state.relayStep {
+                case .talkingToRelay:
                     state.relayStep = .sawCommunication
-                case 3:
-                    state.relayStep = .relayerFinished
-                case 4:
-                    state.relayStep = .sent
-                    return .send(.sendCompleted)
-                default:
-                    break
-                }
-
-                // Continue polling if not done
-                if response.step < 4 {
                     return .run { send in
                         try await clock.sleep(for: .seconds(2))
-                        await send(.pollRelayStatus)
+                        await send(.advanceStep)
                     }
-                    .cancellable(id: CancelID.polling)
+                    .cancellable(id: CancelID.stepping)
+
+                case .sawCommunication:
+                    state.relayStep = .relayerFinished
+                    return .run { send in
+                        try await clock.sleep(for: .seconds(2))
+                        await send(.advanceStep)
+                    }
+                    .cancellable(id: CancelID.stepping)
+
+                case .relayerFinished:
+                    state.relayStep = .sending
+                    return .run { send in
+                        try await clock.sleep(for: .seconds(1.5))
+                        await send(.advanceStep)
+                    }
+                    .cancellable(id: CancelID.stepping)
+
+                case .sending:
+                    state.relayStep = .sent
+                    return .cancel(id: CancelID.stepping)
+
+                default:
+                    return .none
                 }
-                return .none
-
-            case let .pollFailed(message):
-                state.error = message
-                return .none
-
-            case .sendCompleted:
-                state.relayStep = .sent
-                return .cancel(id: CancelID.polling)
 
             case .closeTapped, .backTapped:
-                return .cancel(id: CancelID.polling)
+                return .cancel(id: CancelID.stepping)
             }
         }
     }
