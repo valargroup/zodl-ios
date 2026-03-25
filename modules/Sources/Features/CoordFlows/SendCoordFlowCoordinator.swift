@@ -221,7 +221,10 @@ extension SendCoordFlow {
                 return .none
                 
             case .sendForm(.createPaymentLinkTapped):
-                state.path.append(.paymentLinkFlow(PaymentLinkFlow.State()))
+                var plState = PaymentLinkFlow.State()
+                // Use the wallet's address so the mock service can track balances
+                plState.senderAddress = state.sendFormState.selectedWalletAccount?.privateUnifiedAddress ?? "demo-sender"
+                state.path.append(.paymentLinkFlow(plState))
                 return .none
 
             case .path(.element(id: _, action: .paymentLinkFlow(.closeTapped))),
