@@ -42,10 +42,17 @@ extension Receive {
                 return .none
 
             case let .path(.element(id: _, action: .publicPaymentRegistration(.registrationCompleted(response)))):
-                // Update receive state immediately when registration succeeds
+                // Update receive state
                 state.publicDonationAddress = response.publicAddress
                 state.publicDonationRelayId = response.relayId
                 state.publicDonationRelayURL = response.relayUrl
+                // Pop registration and show the address details QR view
+                state.path.removeAll()
+                var addressDetailsState = AddressDetails.State.initial
+                addressDetailsState.address = response.publicAddress.redacted
+                addressDetailsState.maxPrivacy = false
+                addressDetailsState.addressTitle = "Public Donation Address"
+                state.path.append(.addressDetails(addressDetailsState))
                 return .none
 
             case .path(.element(id: _, action: .publicPaymentRegistration(.closeTapped))):

@@ -161,7 +161,7 @@ public struct ReceiveView: View {
     @ViewBuilder private func publicDonationSection() -> some View {
         VStack(spacing: 12) {
             if let pubAddr = store.publicDonationAddress {
-                // Registered — show the address card
+                // Registered — show the address card (no Request button for public addresses)
                 addressBlock(
                     prefixIcon: Asset.Assets.Brandmarks.brandmarkMax.image,
                     title: "Public Donation Address",
@@ -170,6 +170,7 @@ public struct ReceiveView: View {
                     iconBg: Design.Surfaces.bgTertiary,
                     bcgColor: Design.Surfaces.bgSecondary.color(colorScheme),
                     expanded: store.currentFocus == .publicDonationAddress,
+                    showRequest: false,
                     infoAction: {
                         store.send(.infoTapped(true))
                         explainer = true
@@ -178,9 +179,7 @@ public struct ReceiveView: View {
                     store.send(.copyToPastboard(pubAddr.redacted))
                 } qrAction: {
                     store.send(.addressDetailsRequest(pubAddr.redacted, false))
-                } requestAction: {
-                    // no-op for now
-                }
+                } requestAction: {}
                 .onTapGesture {
                     store.send(.updateCurrentFocus(.publicDonationAddress), animation: .default)
                 }
@@ -364,6 +363,7 @@ public struct ReceiveView: View {
         shield: Bool = false,
         copyButton: Bool = true,
         copyButtonTitle: String? = nil,
+        showRequest: Bool = true,
         infoAction: @escaping () -> Void = {},
         copyAction: @escaping () -> Void,
         qrAction: @escaping () -> Void,
@@ -446,12 +446,14 @@ public struct ReceiveView: View {
                         qrAction()
                     }
 
-                    button(
-                        L10n.Receive.request,
-                        fill: iconBg.color(colorScheme),
-                        icon: Asset.Assets.Icons.coinsHand.image
-                    ) {
-                        requestAction()
+                    if showRequest {
+                        button(
+                            L10n.Receive.request,
+                            fill: iconBg.color(colorScheme),
+                            icon: Asset.Assets.Icons.coinsHand.image
+                        ) {
+                            requestAction()
+                        }
                     }
                 }
                 .zFont(.medium, size: 14, style: iconFg)
