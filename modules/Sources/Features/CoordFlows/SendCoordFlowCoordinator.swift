@@ -259,24 +259,26 @@ extension SendCoordFlow {
                 
             case .sendForm(.confirmationRequired(let confirmationType)):
                 let addr = state.sendFormState.address.data
+                let sender = state.sendFormState.selectedWalletAccount?.unifiedAddress ?? "demo-sender"
+                let amount = state.sendFormState.amount.decimalString()
 
-                // Route dyn1 addresses to direct send (PIR resolve → transfer)
-                if confirmationType == .send && addr.hasPrefix("dyn1") {
-                    var sendState = DirectSend.State()
-                    sendState.recipientAddress = addr
-                    sendState.senderAddress = state.sendFormState.selectedWalletAccount?.unifiedAddress ?? "demo-sender"
-                    sendState.amount = state.sendFormState.amount.decimalString()
-                    state.path.append(.directSend(sendState))
-                    return .none
-                }
-
-                // Route pub1 addresses to relay sender flow
-                if confirmationType == .send && addr.hasPrefix("pub1") {
-                    var senderState = PublicPaymentSender.State()
-                    senderState.recipientAddress = addr
-                    senderState.senderAddress = state.sendFormState.selectedWalletAccount?.unifiedAddress ?? "demo-sender"
-                    senderState.amount = state.sendFormState.amount.decimalString()
-                    state.path.append(.publicPaymentSender(senderState))
+                // Demo: route all sends through mock flows
+                if confirmationType == .send {
+                    if addr.hasPrefix("pub1") {
+                        // Public donation → relay sender flow
+                        var senderState = PublicPaymentSender.State()
+                        senderState.recipientAddress = addr
+                        senderState.senderAddress = sender
+                        senderState.amount = amount
+                        state.path.append(.publicPaymentSender(senderState))
+                    } else {
+                        // All other addresses (dyn1, u1, t1) → direct send via mock service
+                        var sendState = DirectSend.State()
+                        sendState.recipientAddress = addr
+                        sendState.senderAddress = sender
+                        sendState.amount = amount
+                        state.path.append(.directSend(sendState))
+                    }
                     return .none
                 }
 

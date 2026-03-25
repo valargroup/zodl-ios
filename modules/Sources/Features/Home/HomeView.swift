@@ -28,16 +28,15 @@ public struct HomeView: View {
     public var body: some View {
         WithPerceptionTracking {
             VStack(spacing: 0) {
-                WalletBalancesView(
-                    store: store.scope(
-                        state: \.walletBalancesState,
-                        action: \.walletBalances
-                    ),
-                    tokenName: tokenName,
-                    couldBeHidden: true,
-                    shortened: true
-                )
-                .padding(.top, 1)
+                // Mock balance display (replaces SDK balance for demo)
+                VStack(spacing: 4) {
+                    Text("ⓩ\(store.mockBalance)")
+                        .zFont(.bold, size: 42, style: Design.Text.primary)
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
+                }
+                .padding(.top, 16)
+                .padding(.bottom, 8)
 
                 HStack {
                     button(
@@ -78,11 +77,8 @@ public struct HomeView: View {
                 .padding(.top, 24)
                 .screenHorizontalPadding()
 
-                // Demo: mock balance + fund/reset buttons
+                // Fund/reset buttons
                 HStack(spacing: 8) {
-                    Text("Demo: \(store.mockBalance) ZEC")
-                        .zFont(.semiBold, size: 14, style: Design.Text.tertiary)
-
                     Button {
                         store.send(.fundWalletTapped)
                     } label: {

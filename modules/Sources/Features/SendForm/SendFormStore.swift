@@ -154,14 +154,10 @@ public struct SendForm {
         public var isInsufficientFunds: Bool {
             guard isValidAmount else { return false }
 
-            // Use mock balance for mock addresses
-            if isMockAddress {
-                guard let mockBal = Double(mockBalance) else { return true }
-                let mockZatoshi = Int64(mockBal * 100_000_000)
-                return amount.amount > mockZatoshi
-            }
-
-            return amount.amount > shieldedBalance.amount
+            // Demo: always use mock balance
+            guard let mockBal = Double(mockBalance) else { return true }
+            let mockZatoshi = Int64(mockBal * 100_000_000)
+            return amount.amount > mockZatoshi
         }
         
         public var isMemoInputEnabled: Bool {
@@ -332,12 +328,8 @@ public struct SendForm {
                 return .none
                 
             case .reviewTapped:
-                // Mock addresses bypass SDK proposal — go straight to confirmation
-                let addr = state.address.data
-                if addr.hasPrefix("pub1") || addr.hasPrefix("dyn1") {
-                    return .send(.confirmationRequired(.send))
-                }
-                return .send(.getProposal(.send))
+                // Demo: bypass SDK proposal for all addresses — use mock flows
+                return .send(.confirmationRequired(.send))
                 
             case .getProposal(let confirmationType):
                 guard let account = state.selectedWalletAccount else {
@@ -477,19 +469,17 @@ public struct SendForm {
                 return .none
                 
             case .addressUpdated(let newValue):
-                let network = zcashSDKEnvironment.network.networkType
                 state.address = newValue
 
-                // Check for mock address prefixes first (payment flow demo)
+                // Demo: accept any non-empty address
                 let addr = state.address.data
-                let isPublicDonation = addr.hasPrefix("pub1")
-                let isDynamicAddress = addr.hasPrefix("dyn1")
+                state.isValidAddress = !addr.isEmpty
+                state.isValidTransparentAddress = addr.hasPrefix("t1")
+                state.isValidTexAddress = false
 
-                if isPublicDonation || isDynamicAddress {
-                    state.isValidAddress = true
-                    state.isValidTransparentAddress = false
-                    state.isValidTexAddress = false
-                } else {
+                if false {
+                    // Original SDK validation (kept for reference)
+                    let network = zcashSDKEnvironment.network.networkType
                     state.isValidAddress = derivationTool.isZcashAddress(state.address.data, network)
                     state.isValidTransparentAddress = derivationTool.isTransparentAddress(state.address.data, network)
                     state.isValidTexAddress = derivationTool.isTexAddress(state.address.data, network)

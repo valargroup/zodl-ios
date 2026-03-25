@@ -206,12 +206,11 @@ public struct Home {
                 return .none
 
             case .swapWithNearTapped:
-                state.moreRequest = false
+                // Demo: noop
                 return .none
 
             case .payWithNearTapped:
-                state.moreRequest = false
-                state.payRequest = false
+                // Demo: noop
                 return .none
 
             case .scanTapped:
@@ -229,7 +228,7 @@ public struct Home {
                 return .none
                 
             case .payTapped:
-                state.payRequest = true
+                // Demo: noop
                 return .none
 
             case .resolveReviewRequest:

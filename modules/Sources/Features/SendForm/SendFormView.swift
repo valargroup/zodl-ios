@@ -45,20 +45,14 @@ public struct SendFormView: View {
                             WithPerceptionTracking {
                                 VStack(alignment: .center) {
                                     WithPerceptionTracking {
-                                        WalletBalancesView(
-                                            store: store.scope(
-                                                state: \.walletBalancesState,
-                                                action: \.walletBalances
-                                            ),
-                                            tokenName: tokenName,
-                                            couldBeHidden: true
-                                        )
-
-                                        if store.isMockAddress {
-                                            Text("Demo balance: \(store.mockBalance) ZEC")
-                                                .zFont(.semiBold, size: 14, style: Design.Text.support)
-                                                .padding(.bottom, 4)
+                                        // Mock balance (replaces SDK balance for demo)
+                                        VStack(spacing: 4) {
+                                            Text("ⓩ\(store.mockBalance)")
+                                                .zFont(.bold, size: 42, style: Design.Text.primary)
+                                                .minimumScaleFactor(0.5)
+                                                .lineLimit(1)
                                         }
+                                        .padding(.bottom, 8)
 
                                         VStack(alignment: .leading) {
                                             ZashiTextField(
