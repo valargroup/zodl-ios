@@ -386,6 +386,7 @@ public struct Home {
                 return .none
 
             case .resetDemoState:
+                state.mockTransactions = []
                 return .none
 
             case .walletBalances:

@@ -38,6 +38,11 @@ extension Receive {
             case .registerPublicAddressTapped:
                 var registrationState = PublicPaymentRegistration.State()
                 registrationState.ownerAddress = state.selectedWalletAccount?.unifiedAddress ?? state.ldaAddress
+                // Show no-funds screen if mock balance is 0
+                let bal = Double(state.mockBalance) ?? 0
+                if bal <= 0 {
+                    registrationState.screen = .noFunds
+                }
                 state.path.append(.publicPaymentRegistration(registrationState))
                 return .none
 

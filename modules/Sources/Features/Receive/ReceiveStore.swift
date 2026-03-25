@@ -47,6 +47,7 @@ public struct Receive {
         public var isLDAInfoPresented = false
         public var memo = ""
         public var path = StackState<Path.State>()
+        @Shared(.inMemory(.mockBalance)) public var mockBalance: String = "0"
         @Shared(.inMemory(.selectedWalletAccount)) public var selectedWalletAccount: WalletAccount? = nil
         @Shared(.inMemory(.toast)) public var toast: Toast.Edge? = nil
 
