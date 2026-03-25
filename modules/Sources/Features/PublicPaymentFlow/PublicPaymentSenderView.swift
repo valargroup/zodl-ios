@@ -40,6 +40,8 @@ public struct PublicPaymentSenderView: View {
                 )
             case .sent:
                 sentView()
+            case .failed:
+                failedView()
             }
         }
         .applyScreenBackground()
@@ -151,6 +153,39 @@ public struct PublicPaymentSenderView: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, 8)
                 .padding(.horizontal, 32)
+
+            Spacer()
+
+            ZashiButton("Close") {
+                store.send(.closeTapped)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+}
+
+    // MARK: - Failed
+
+    @ViewBuilder private func failedView() -> some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(Design.Utility.ErrorRed._600.color(colorScheme))
+                .padding(.bottom, 16)
+
+            Text("Relay Error")
+                .zFont(.semiBold, size: 22, style: Design.Text.primary)
+
+            if let error = store.error {
+                Text(error)
+                    .zFont(size: 14, style: Design.Text.tertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 32)
+            }
 
             Spacer()
 

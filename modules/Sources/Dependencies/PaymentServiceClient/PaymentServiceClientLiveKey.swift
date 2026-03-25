@@ -103,6 +103,9 @@ extension PaymentServiceClient: DependencyKey {
             registerRelay: { request in
                 try await post("/relay/register", body: request)
             },
+            resolveRelayByAddress: { address in
+                try await get("/relay/resolve/\(address)")
+            },
             getRelayPubkey: { relayId in
                 try await get("/relay/\(relayId)/pubkey")
             },

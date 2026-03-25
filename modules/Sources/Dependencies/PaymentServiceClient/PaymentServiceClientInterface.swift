@@ -19,6 +19,7 @@ public struct PaymentServiceClient {
     public var revokePaymentLink: @Sendable (_ id: String) async throws -> PaymentLinkResponse
     // Relay
     public var registerRelay: @Sendable (_ request: RegisterRelayRequest) async throws -> RegisterRelayResponse
+    public var resolveRelayByAddress: @Sendable (_ address: String) async throws -> RegisterRelayResponse
     public var getRelayPubkey: @Sendable (_ relayId: String) async throws -> RelayPubkeyResponse
     public var postRelayEncaps: @Sendable (_ relayId: String, _ request: RelayEncapsRequest) async throws -> RelayStatusResponse
     public var getRelayStatus: @Sendable (_ relayId: String, _ encapsId: String) async throws -> RelayStatusResponse
