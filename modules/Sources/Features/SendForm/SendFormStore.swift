@@ -54,6 +54,7 @@ public struct SendForm {
         public var isValidTexAddress = false
         public var memoState: MessageEditor.State
         public var proposal: Proposal?
+        @Shared(.inMemory(.mockBalance)) public var mockBalance: String = "0"
         @Shared(.inMemory(.selectedWalletAccount)) public var selectedWalletAccount: WalletAccount? = nil
         public var shieldedBalance: Zatoshi
         public var walletBalancesState: WalletBalances.State

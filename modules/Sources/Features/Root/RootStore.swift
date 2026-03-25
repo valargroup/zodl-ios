@@ -118,6 +118,7 @@ public struct Root {
         public var splashAppeared = false
         public var supportData: SupportData?
         @Shared(.inMemory(.swapAPIAccess)) var swapAPIAccess: WalletStorage.SwapAPIAccess = .direct
+        @Shared(.inMemory(.mockBalance)) public var mockBalance: String = "0"
         @Shared(.inMemory(.toast)) public var toast: Toast.Edge? = nil
         @Shared(.inMemory(.transactions)) public var transactions: IdentifiedArrayOf<TransactionState> = []
         @Shared(.inMemory(.transactionMemos)) public var transactionMemos: [String: [String]] = [:]

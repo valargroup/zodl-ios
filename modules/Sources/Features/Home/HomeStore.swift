@@ -35,6 +35,7 @@ public struct Home {
         public var payRequest = false
         public var smartBannerState = SmartBanner.State.initial
         public var walletConfig: WalletConfig
+        @Shared(.inMemory(.mockBalance)) public var mockBalance: String = "0"
         @Shared(.inMemory(.selectedWalletAccount)) public var selectedWalletAccount: WalletAccount? = nil
         public var transactionListState: TransactionList.State
         @Shared(.inMemory(.walletAccounts)) public var walletAccounts: [WalletAccount] = []

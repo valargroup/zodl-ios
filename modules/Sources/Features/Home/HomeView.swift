@@ -78,21 +78,26 @@ public struct HomeView: View {
                 .padding(.top, 24)
                 .screenHorizontalPadding()
 
-                // Demo: fund wallet via mock service
-                Button {
-                    store.send(.fundWalletTapped)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 14))
-                        Text("Fund Demo Wallet (+100 ZEC)")
-                            .zFont(.medium, size: 13, style: Design.Text.tertiary)
-                    }
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 16)
-                    .background {
-                        Capsule()
-                            .fill(Design.Surfaces.bgTertiary.color(colorScheme))
+                // Demo: mock balance + fund button
+                HStack(spacing: 12) {
+                    Text("Demo: \(store.mockBalance) ZEC")
+                        .zFont(.semiBold, size: 14, style: Design.Text.tertiary)
+
+                    Button {
+                        store.send(.fundWalletTapped)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 12))
+                            Text("+100")
+                                .zFont(.medium, size: 12, style: Design.Text.tertiary)
+                        }
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .background {
+                            Capsule()
+                                .fill(Design.Surfaces.bgTertiary.color(colorScheme))
+                        }
                     }
                 }
                 .padding(.top, 8)

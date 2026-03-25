@@ -222,25 +222,25 @@ extension SendCoordFlow {
                 
             case .sendForm(.createPaymentLinkTapped):
                 var plState = PaymentLinkFlow.State()
-                // Use the wallet's address so the mock service can track balances
                 plState.senderAddress = state.sendFormState.selectedWalletAccount?.privateUnifiedAddress ?? "demo-sender"
+                plState.balance = state.sendFormState.mockBalance
                 state.path.append(.paymentLinkFlow(plState))
                 return .none
 
             case .path(.element(id: _, action: .directSend(.closeTapped))),
                  .path(.element(id: _, action: .directSend(.backTapped))):
                 state.path.removeAll()
-                return .none
+                return refreshMockBalance(walletAddress: state.sendFormState.selectedWalletAccount?.privateUnifiedAddress)
 
             case .path(.element(id: _, action: .paymentLinkFlow(.closeTapped))),
                  .path(.element(id: _, action: .paymentLinkFlow(.backTapped))):
                 state.path.removeAll()
-                return .none
+                return refreshMockBalance(walletAddress: state.sendFormState.selectedWalletAccount?.privateUnifiedAddress)
 
             case .path(.element(id: _, action: .publicPaymentSender(.closeTapped))),
                  .path(.element(id: _, action: .publicPaymentSender(.backTapped))):
                 state.path.removeAll()
-                return .none
+                return refreshMockBalance(walletAddress: state.sendFormState.selectedWalletAccount?.privateUnifiedAddress)
 
             case .sendForm(.addNewContactTapped(let address)):
                 var addressBookState = AddressBook.State.initial
@@ -388,5 +388,15 @@ extension SendCoordFlow {
             default: return .none
             }
         }
+    }
+
+    private func refreshMockBalance(walletAddress: String?) -> Effect<SendCoordFlow.Action> {
+        guard let address = walletAddress else { return .none }
+        return .run { _ in
+            @Dependency(\.paymentServiceClient) var paymentServiceClient
+            let response = try await paymentServiceClient.getBalance(address)
+            @Shared(.inMemory(.mockBalance)) var mockBalance
+            $mockBalance.withLock { $0 = response.balance }
+        } catch: { _, _ in }
     }
 }

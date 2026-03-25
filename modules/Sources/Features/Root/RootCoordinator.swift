@@ -203,6 +203,7 @@ extension Root {
                 }
 
             case let .home(.fundWalletCompleted(balance)):
+                state.$mockBalance.withLock { $0 = balance }
                 state.$toast.withLock { $0 = .top("Funded! Mock balance: \(balance) ZEC") }
                 return .none
 
