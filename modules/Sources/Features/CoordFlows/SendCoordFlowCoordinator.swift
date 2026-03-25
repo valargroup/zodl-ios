@@ -253,10 +253,11 @@ extension SendCoordFlow {
                 return .none
                 
             case .sendForm(.confirmationRequired(let confirmationType)):
-                // Route pub1 addresses to the relay sender flow
-                if confirmationType == .send && state.sendFormState.address.data.hasPrefix("pub1") {
+                // Route pub1/dyn1 addresses to the relay sender flow (mock addresses)
+                let addr = state.sendFormState.address.data
+                if confirmationType == .send && (addr.hasPrefix("pub1") || addr.hasPrefix("dyn1")) {
                     var senderState = PublicPaymentSender.State()
-                    senderState.recipientAddress = state.sendFormState.address.data
+                    senderState.recipientAddress = addr
                     senderState.amount = state.sendFormState.amount.decimalString()
                     state.path.append(.publicPaymentSender(senderState))
                     return .none

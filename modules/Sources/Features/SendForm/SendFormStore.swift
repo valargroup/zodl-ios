@@ -320,6 +320,11 @@ public struct SendForm {
                 return .none
                 
             case .reviewTapped:
+                // Mock addresses bypass SDK proposal — go straight to confirmation
+                let addr = state.address.data
+                if addr.hasPrefix("pub1") || addr.hasPrefix("dyn1") {
+                    return .send(.confirmationRequired(.send))
+                }
                 return .send(.getProposal(.send))
                 
             case .getProposal(let confirmationType):
