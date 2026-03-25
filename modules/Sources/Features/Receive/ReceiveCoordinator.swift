@@ -22,18 +22,18 @@ extension Receive {
                 var addressDetailsState = AddressDetails.State.initial
                 addressDetailsState.address = address
                 addressDetailsState.maxPrivacy = maxPrivacy
-                if state.selectedWalletAccount?.vendor == .keystone {
-                    addressDetailsState.addressTitle = maxPrivacy
-                    ? L10n.Accounts.Keystone.shieldedAddress
-                    : L10n.Accounts.Keystone.transparentAddress
+                if maxPrivacy {
+                    addressDetailsState.addressTitle = "Linkable Dynamic Address"
                 } else {
-                    addressDetailsState.addressTitle = maxPrivacy
-                    ? L10n.Accounts.Zashi.shieldedAddress
-                    : L10n.Accounts.Zashi.transparentAddress
+                    if state.selectedWalletAccount?.vendor == .keystone {
+                        addressDetailsState.addressTitle = L10n.Accounts.Keystone.transparentAddress
+                    } else {
+                        addressDetailsState.addressTitle = L10n.Accounts.Zashi.transparentAddress
+                    }
                 }
                 state.path.append(.addressDetails(addressDetailsState))
                 return .none
-                
+
             case let .requestTapped(address, maxPrivacy):
                 state.path.append(.zecKeyboard(ZecKeyboard.State.initial))
                 state.memo = ""
@@ -41,7 +41,7 @@ extension Receive {
                 state.requestZecState.address = address
                 state.requestZecState.maxPrivacy = maxPrivacy
                 return .none
-                
+
                 // MARK: - Request Zec
 
             case .path(.element(id: _, action: .requestZec(.requestTapped))):
@@ -70,7 +70,7 @@ extension Receive {
                 }
                 state.path.append(.requestZec(state.requestZecState))
                 return .none
-                
+
             default: return .none
             }
         }

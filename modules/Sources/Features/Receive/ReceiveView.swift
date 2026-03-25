@@ -26,141 +26,44 @@ public struct ReceiveView: View {
     let tokenName: String
 
     @State var explainer = false
-    
+    @State var ldaInfo = false
+
     public init(store: StoreOf<Receive>, networkType: NetworkType, tokenName: String) {
         self.store = store
         self.networkType = networkType
         self.tokenName = tokenName
     }
-    
+
     public var body: some View {
         WithPerceptionTracking {
             NavigationStack(path: $store.scope(state: \.path, action: \.path)) {
                 VStack(spacing: 0) {
                     ScrollView {
                         WithPerceptionTracking {
-                            if store.selectedWalletAccount?.vendor == .keystone {
-                                addressBlock(
-                                    prefixIcon: Asset.Assets.Partners.keystoneSeekLogo.image,
-                                    title: L10n.Accounts.Keystone.shieldedAddress,
-                                    address: store.unifiedAddress,
-                                    iconFg: Design.Utility.Indigo._800,
-                                    iconBg: Design.Utility.Indigo._100,
-                                    bcgColor: Design.Utility.Indigo._50.color(colorScheme),
-                                    expanded: store.currentFocus == .uaAddress,
-                                    shield: true
-                                ) {
-                                    store.send(.copyToPastboard(store.unifiedAddress.redacted))
-                                } qrAction: {
-                                    store.send(.addressDetailsRequest(store.unifiedAddress.redacted, true))
-                                } requestAction: {
-                                    store.send(.requestTapped(store.unifiedAddress.redacted, true))
-                                }
-                                .onTapGesture {
-                                    store.send(.updateCurrentFocus(.uaAddress), animation: .default)
-                                }
+                            // 1. Linkable Dynamic Address (primary)
+                            ldaAddressBlock()
                                 .padding(.top, 24)
-                                
-                                if let transparentAddress = store.selectedWalletAccount?.transparentAddress {
-                                    addressBlock(
-                                        prefixIcon: Asset.Assets.Partners.keystoneSeekLogo.image,
-                                        title: L10n.Accounts.Keystone.transparentAddress,
-                                        address: transparentAddress,
-                                        iconFg: Design.Text.primary,
-                                        iconBg: Design.Surfaces.bgTertiary,
-                                        bcgColor: Design.Surfaces.bgSecondary.color(colorScheme),
-                                        expanded: store.currentFocus == .tAddress,
-                                        copyButton: false
-                                    ) {
-                                        store.send(.copyToPastboard(store.transparentAddress.redacted))
-                                    } qrAction: {
-                                        store.send(.addressDetailsRequest(store.transparentAddress.redacted, false))
-                                    } requestAction: {
-                                        store.send(.requestTapped(store.transparentAddress.redacted, false))
-                                    }
-                                    .onTapGesture {
-                                        store.send(.updateCurrentFocus(.tAddress), animation: .default)
-                                    }
-                                }
-                            } else {
-                                addressBlock(
-                                    prefixIcon: Asset.Assets.Brandmarks.brandmarkMax.image,
-                                    title: L10n.Accounts.Zashi.shieldedAddress,
-                                    address: store.unifiedAddress,
-                                    iconFg: Design.Utility.Purple._800,
-                                    iconBg: Design.Utility.Purple._100,
-                                    bcgColor: Design.Utility.Purple._50.color(colorScheme),
-                                    expanded: store.currentFocus == .uaAddress,
-                                    shield: true
-                                ) {
-                                    store.send(.copyToPastboard(store.unifiedAddress.redacted))
-                                } qrAction: {
-                                    store.send(.addressDetailsRequest(store.unifiedAddress.redacted, true))
-                                } requestAction: {
-                                    store.send(.requestTapped(store.unifiedAddress.redacted, true))
-                                }
-                                .onTapGesture {
-                                    store.send(.updateCurrentFocus(.uaAddress), animation: .default)
-                                }
-                                .padding(.top, 24)
-                                
-                                addressBlock(
-                                    prefixIcon: Asset.Assets.Brandmarks.brandmarkMax.image,
-                                    title: L10n.Accounts.Zashi.transparentAddress,
-                                    address: store.transparentAddress,
-                                    iconFg: Design.Text.primary,
-                                    iconBg: Design.Surfaces.bgTertiary,
-                                    bcgColor: Design.Surfaces.bgSecondary.color(colorScheme),
-                                    expanded: store.currentFocus == .tAddress,
-                                    copyButton: false
-                                ) {
-                                    store.send(.copyToPastboard(store.transparentAddress.redacted))
-                                } qrAction: {
-                                    store.send(.addressDetailsRequest(store.transparentAddress.redacted, false))
-                                } requestAction: {
-                                    store.send(.requestTapped(store.transparentAddress.redacted, false))
-                                }
-                                .onTapGesture {
-                                    store.send(.updateCurrentFocus(.tAddress), animation: .default)
-                                }
-#if DEBUG
-                                if networkType == .testnet {
-                                    addressBlock(
-                                        prefixIcon: Asset.Assets.Brandmarks.brandmarkMax.image,
-                                        title: L10n.Receive.saplingAddress,
-                                        address: store.saplingAddress,
-                                        iconFg: Design.Text.primary,
-                                        iconBg: Design.Surfaces.bgTertiary,
-                                        bcgColor: .clear,
-                                        expanded: store.currentFocus == .saplingAddress,
-                                        shield: true
-                                    ) {
-                                        store.send(.copyToPastboard(store.saplingAddress.redacted))
-                                    } qrAction: {
-                                        store.send(.addressDetailsRequest(store.saplingAddress.redacted, true))
-                                    } requestAction: {
-                                        store.send(.requestTapped(store.saplingAddress.redacted, true))
-                                    }
-                                    .onTapGesture {
-                                        store.send(.updateCurrentFocus(.saplingAddress))
-                                    }
-                                }
-#endif
-                            }
+
+                            // 2. Transparent Address
+                            transparentAddressBlock()
+
+                            // 3. Public Donation Address
+                            publicDonationSection()
                         }
                     }
                     .padding(.vertical, 1)
                     .onAppear {
-                        store.send(.updateCurrentFocus(.uaAddress))
+                        store.send(.onAppear)
                     }
-                    
+
                     Spacer()
-                    
+
+                    // Privacy footer
                     Asset.Assets.shieldTick.image
                         .zImage(size: 24, style: Design.Text.tertiary)
                         .padding(.bottom, 8)
-                    
-                    Text(L10n.Receive.warning)
+
+                    Text("For privacy, always use shielded address.")
                         .zFont(size: 14, style: Design.Text.tertiary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -187,9 +90,124 @@ public struct ReceiveView: View {
             .zashiSheet(isPresented: $explainer) {
                 explainerContent()
             }
+            .zashiSheet(isPresented: $ldaInfo) {
+                ldaInfoContent()
+            }
         }
     }
-    
+
+    // MARK: - LDA Address Block
+
+    @ViewBuilder private func ldaAddressBlock() -> some View {
+        addressBlock(
+            prefixIcon: Asset.Assets.Brandmarks.brandmarkMax.image,
+            title: "Linkable Dynamic Address",
+            address: store.ldaAddress,
+            iconFg: Design.Utility.Purple._800,
+            iconBg: Design.Utility.Purple._100,
+            bcgColor: Design.Utility.Purple._50.color(colorScheme),
+            expanded: store.currentFocus == .ldaAddress,
+            shield: true,
+            copyButtonTitle: "Share",
+            infoAction: {
+                store.send(.ldaInfoTapped)
+                ldaInfo = true
+            }
+        ) {
+            store.send(.shareTapped(store.ldaAddress))
+        } qrAction: {
+            store.send(.addressDetailsRequest(store.ldaAddress.redacted, true))
+        } requestAction: {
+            store.send(.requestTapped(store.ldaAddress.redacted, true))
+        }
+        .onTapGesture {
+            store.send(.updateCurrentFocus(.ldaAddress), animation: .default)
+        }
+    }
+
+    // MARK: - Transparent Address Block
+
+    @ViewBuilder private func transparentAddressBlock() -> some View {
+        addressBlock(
+            prefixIcon: Asset.Assets.Brandmarks.brandmarkMax.image,
+            title: L10n.Accounts.Zashi.transparentAddress,
+            address: store.transparentAddress,
+            iconFg: Design.Text.primary,
+            iconBg: Design.Surfaces.bgTertiary,
+            bcgColor: Design.Surfaces.bgSecondary.color(colorScheme),
+            expanded: store.currentFocus == .tAddress,
+            copyButton: false,
+            infoAction: {
+                store.send(.infoTapped(false))
+                explainer = true
+            }
+        ) {
+            store.send(.copyToPastboard(store.transparentAddress.redacted))
+        } qrAction: {
+            store.send(.addressDetailsRequest(store.transparentAddress.redacted, false))
+        } requestAction: {
+            store.send(.requestTapped(store.transparentAddress.redacted, false))
+        }
+        .onTapGesture {
+            store.send(.updateCurrentFocus(.tAddress), animation: .default)
+        }
+    }
+
+    // MARK: - Public Donation Section
+
+    @ViewBuilder private func publicDonationSection() -> some View {
+        VStack(spacing: 12) {
+            if let pubAddr = store.publicDonationAddress {
+                // Registered — show the address card
+                addressBlock(
+                    prefixIcon: Asset.Assets.Brandmarks.brandmarkMax.image,
+                    title: "Public Donation Address",
+                    address: pubAddr,
+                    iconFg: Design.Text.primary,
+                    iconBg: Design.Surfaces.bgTertiary,
+                    bcgColor: Design.Surfaces.bgSecondary.color(colorScheme),
+                    expanded: store.currentFocus == .publicDonationAddress,
+                    infoAction: {
+                        store.send(.infoTapped(true))
+                        explainer = true
+                    }
+                ) {
+                    store.send(.copyToPastboard(pubAddr.redacted))
+                } qrAction: {
+                    store.send(.addressDetailsRequest(pubAddr.redacted, false))
+                } requestAction: {
+                    // no-op for now
+                }
+                .onTapGesture {
+                    store.send(.updateCurrentFocus(.publicDonationAddress), animation: .default)
+                }
+            }
+
+            // Register button (shown when not registered)
+            if !store.isPublicDonationRegistered {
+                Button {
+                    store.send(.registerPublicAddressTapped)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("Register a Public Address")
+                            .zFont(.semiBold, size: 16, style: Design.Text.primary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background {
+                        RoundedRectangle(cornerRadius: Design.Radius._xl)
+                            .fill(Design.Utility.WarningYellow._100.color(colorScheme))
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
+    // MARK: - Explainer Sheets
+
     @ViewBuilder private func explainerContent() -> some View {
         VStack(spacing: 0) {
             if store.isExplainerForShielded {
@@ -199,7 +217,44 @@ public struct ReceiveView: View {
             }
         }
     }
-    
+
+    @ViewBuilder private func ldaInfoContent() -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("🔗")
+                .font(.system(size: 18))
+                .padding(10)
+                .background {
+                    RoundedRectangle(cornerRadius: Design.Radius._full)
+                        .fill(Design.Surfaces.bgTertiary.color(colorScheme))
+                }
+                .padding(.top, 24)
+                .padding(.bottom, 12)
+
+            Text("Linkable Dynamic Address")
+                .zFont(.semiBold, size: 20, style: Design.Text.primary)
+                .padding(.bottom, 12)
+                .fixedSize(horizontal: false, vertical: true)
+
+            infoContent(text: "Each address encodes your static 32-byte shielded receiver and a unique random 32-byte PIR tag, base58-encoded for sharing.")
+                .padding(.bottom, 12)
+
+            infoContent(text: "Senders query your payment info via Private Information Retrieval (PIR) using the static component — the server never learns who is being paid.")
+                .padding(.bottom, 12)
+
+            infoContent(text: "The random tag makes each shared address unlinkable, while remaining recoverable from your seed phrase.")
+                .padding(.bottom, 12)
+
+            infoContent(text: "All payments received through different Linkable Dynamic Addresses arrive in your shielded wallet balance under the same seed phrase.")
+                .padding(.bottom, 32)
+
+            ZashiButton(L10n.General.ok.uppercased()) {
+                store.send(.ldaInfoDismissed)
+                ldaInfo = false
+            }
+            .padding(.bottom, Design.Spacing.sheetBottomSpace)
+        }
+    }
+
     @ViewBuilder private func shieldedAddressExplainerContent() -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Asset.Assets.Icons.shieldTickFilled.image
@@ -216,19 +271,19 @@ public struct ReceiveView: View {
                 .zFont(.semiBold, size: 20, style: Design.Text.primary)
                 .padding(.bottom, 12)
                 .fixedSize(horizontal: false, vertical: true)
-            
+
             infoContent(text: L10n.Receive.Help.Shielded.desc1)
                 .padding(.bottom, 12)
-            
+
             infoContent(text: L10n.Receive.Help.Shielded.desc2)
                 .padding(.bottom, 12)
-            
+
             infoContent(text: L10n.Receive.Help.Shielded.desc3)
                 .padding(.bottom, 12)
-            
+
             infoContent(text: L10n.Receive.Help.Shielded.desc4)
                 .padding(.bottom, 32)
-            
+
             ZashiButton(L10n.General.ok.uppercased()) {
                 store.send(.infoTapped(true))
                 explainer = false
@@ -236,7 +291,7 @@ public struct ReceiveView: View {
             .padding(.bottom, Design.Spacing.sheetBottomSpace)
         }
     }
-    
+
     @ViewBuilder private func transparentAddressExplainerContent() -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Asset.Assets.Icons.shieldOff.image
@@ -248,7 +303,7 @@ public struct ReceiveView: View {
                 }
                 .padding(.top, 24)
                 .padding(.bottom, 12)
-            
+
             Text(L10n.Receive.Help.Transparent.title)
                 .zFont(.semiBold, size: 20, style: Design.Text.primary)
                 .padding(.bottom, 12)
@@ -265,7 +320,7 @@ public struct ReceiveView: View {
 
             infoContent(text: L10n.Receive.Help.Transparent.desc4)
                 .padding(.bottom, 32)
-            
+
             ZashiButton(L10n.General.ok.uppercased()) {
                 store.send(.infoTapped(false))
                 explainer = false
@@ -273,14 +328,16 @@ public struct ReceiveView: View {
             .padding(.bottom, Design.Spacing.sheetBottomSpace)
         }
     }
-    
+
+    // MARK: - Shared Components
+
     @ViewBuilder private func infoContent(text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Circle()
                 .frame(width: 4, height: 4)
                 .foregroundColor(Design.Text.tertiary.color(colorScheme))
                 .padding(.top, 8)
-            
+
             if let attrText = try? AttributedString(
                 markdown: text,
                 including: \.zashiApp
@@ -291,7 +348,7 @@ public struct ReceiveView: View {
             }
         }
     }
-    
+
     @ViewBuilder private func addressBlock(
         prefixIcon: Image,
         title: String,
@@ -302,6 +359,8 @@ public struct ReceiveView: View {
         expanded: Bool,
         shield: Bool = false,
         copyButton: Bool = true,
+        copyButtonTitle: String? = nil,
+        infoAction: @escaping () -> Void = {},
         copyAction: @escaping () -> Void,
         qrAction: @escaping () -> Void,
         requestAction: @escaping () -> Void
@@ -329,24 +388,23 @@ public struct ReceiveView: View {
                         .frame(width: 40, height: 40)
                         .padding(.trailing, 16)
                 }
-                
+
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title)
                         .zFont(.semiBold, size: 16, style: Design.Text.primary)
                         .minimumScaleFactor(0.5)
                         .padding(.bottom, 4)
-                    
+
                     Text(address.truncateMiddle10)
                         .zFont(fontFamily: .robotoMono, size: 14, style: Design.Text.tertiary)
                         .padding(.bottom, expanded ? 10 : 0)
                 }
                 .lineLimit(1)
-                
+
                 Spacer(minLength: 0)
 
                 Button {
-                    store.send(.infoTapped(shield))
-                    explainer = true
+                    infoAction()
                 } label: {
                     Asset.Assets.infoCircle.image
                         .zImage(size: 16, style: Design.Btns.Ghost.fg)
@@ -363,19 +421,19 @@ public struct ReceiveView: View {
                 }
             }
             .padding(.horizontal, 20)
-            
+
             if expanded {
                 HStack(spacing: 8) {
                     if copyButton {
                         button(
-                            L10n.Receive.copy,
+                            copyButtonTitle ?? L10n.Receive.copy,
                             fill: iconBg.color(colorScheme),
                             icon: Asset.Assets.copy.image
                         ) {
                             copyAction()
                         }
                     }
-                    
+
                     button(
                         L10n.Receive.qrCode,
                         fill: iconBg.color(colorScheme),
@@ -383,7 +441,7 @@ public struct ReceiveView: View {
                     ) {
                         qrAction()
                     }
-                    
+
                     button(
                         L10n.Receive.request,
                         fill: iconBg.color(colorScheme),
@@ -402,7 +460,7 @@ public struct ReceiveView: View {
                 .fill(bcgColor)
         }
     }
-    
+
     private func button(_ title: String, fill: Color, icon: Image, action: @escaping () -> Void) -> some View {
         Button {
             action()
@@ -419,7 +477,7 @@ public struct ReceiveView: View {
                         RoundedRectangle(cornerRadius: Design.Radius._xl)
                             .fill(fill)
                     }
-                
+
                 Text(title)
                     .offset(x: 0, y: 10)
             }
