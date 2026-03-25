@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import ComposableArchitecture
+import PaymentServiceClient
 import ZcashLightClientKit
 import Pasteboard
 import Generated
@@ -91,6 +92,7 @@ public struct Receive {
     }
 
     @Dependency(\.pasteboard) var pasteboard
+    @Dependency(\.paymentServiceClient) var paymentServiceClient
 
     public init() { }
 
@@ -137,7 +139,13 @@ public struct Receive {
                 // Rotate the LDA address on each screen appearance
                 state.ldaAddress = State.generateMockLDA()
                 state.currentFocus = .ldaAddress
-                return .none
+                // Register the new dyn1 address as alias of the stable u1 address
+                let alias = state.ldaAddress
+                let owner = state.selectedWalletAccount?.unifiedAddress ?? ""
+                guard !owner.isEmpty else { return .none }
+                return .run { _ in
+                    try? await paymentServiceClient.registerAlias(alias, owner)
+                }
 
             case .registerPublicAddressTapped:
                 return .none

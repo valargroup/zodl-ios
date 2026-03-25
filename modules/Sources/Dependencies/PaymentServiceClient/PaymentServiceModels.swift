@@ -174,6 +174,18 @@ public struct TransferResponse: Codable, Equatable {
     }
 }
 
+// MARK: - Address Alias
+
+public struct RegisterAliasRequest: Codable {
+    public let alias: String
+    public let owner: String
+
+    public init(alias: String, owner: String) {
+        self.alias = alias
+        self.owner = owner
+    }
+}
+
 // MARK: - Balance
 
 public struct MockBalanceResponse: Codable, Equatable {
