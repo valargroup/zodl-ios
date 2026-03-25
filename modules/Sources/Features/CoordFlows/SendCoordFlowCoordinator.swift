@@ -13,6 +13,7 @@ import AudioServices
 
 import AddressBook
 import PaymentLinkFlow
+import PublicPaymentFlow
 import Scan
 import SendConfirmation
 import SendForm
@@ -228,6 +229,11 @@ extension SendCoordFlow {
                 state.path.removeAll()
                 return .none
 
+            case .path(.element(id: _, action: .publicPaymentSender(.closeTapped))),
+                 .path(.element(id: _, action: .publicPaymentSender(.backTapped))):
+                state.path.removeAll()
+                return .none
+
             case .sendForm(.addNewContactTapped(let address)):
                 var addressBookState = AddressBook.State.initial
                 addressBookState.isNameFocused = true
@@ -244,6 +250,15 @@ extension SendCoordFlow {
                 return .none
                 
             case .sendForm(.confirmationRequired(let confirmationType)):
+                // Route pub1 addresses to the relay sender flow
+                if confirmationType == .send && state.sendFormState.address.data.hasPrefix("pub1") {
+                    var senderState = PublicPaymentSender.State()
+                    senderState.recipientAddress = state.sendFormState.address.data
+                    senderState.amount = state.sendFormState.amount.decimalString()
+                    state.path.append(.publicPaymentSender(senderState))
+                    return .none
+                }
+
                 var sendConfirmationState = SendConfirmation.State.initial
                 sendConfirmationState.amount = state.sendFormState.amount
                 sendConfirmationState.address = state.sendFormState.address.data
@@ -252,7 +267,7 @@ extension SendCoordFlow {
                 sendConfirmationState.message = state.sendFormState.message
                 let currencyAmount = state.sendFormState.currencyConversion?.convert(state.sendFormState.amount).redacted ?? .empty
                 sendConfirmationState.currencyAmount = currencyAmount
-                
+
                 if confirmationType == .send {
                     state.path.append(.sendConfirmation(sendConfirmationState))
                 } else if confirmationType == .requestPayment {

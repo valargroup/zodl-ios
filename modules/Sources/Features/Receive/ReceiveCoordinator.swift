@@ -9,6 +9,7 @@ import ComposableArchitecture
 import Generated
 
 import AddressDetails
+import PublicPaymentFlow
 import RequestZec
 import ZecKeyboard
 
@@ -32,6 +33,31 @@ extension Receive {
                     }
                 }
                 state.path.append(.addressDetails(addressDetailsState))
+                return .none
+
+            case .registerPublicAddressTapped:
+                var registrationState = PublicPaymentRegistration.State()
+                registrationState.ownerAddress = state.ldaAddress
+                state.path.append(.publicPaymentRegistration(registrationState))
+                return .none
+
+            case .path(.element(id: _, action: .publicPaymentRegistration(.closeTapped))):
+                // Check if registration was successful and update state
+                for element in state.path {
+                    if case .publicPaymentRegistration(let regState) = element {
+                        if let pubAddr = regState.publicAddress {
+                            state.publicDonationAddress = pubAddr
+                            state.publicDonationRelayId = regState.registrationResult?.relayId
+                            state.publicDonationRelayURL = regState.registrationResult?.relayUrl
+                        }
+                        break
+                    }
+                }
+                state.path.removeAll()
+                return .none
+
+            case .path(.element(id: _, action: .publicPaymentRegistration(.goHomeTapped))):
+                state.path.removeAll()
                 return .none
 
             case let .requestTapped(address, maxPrivacy):

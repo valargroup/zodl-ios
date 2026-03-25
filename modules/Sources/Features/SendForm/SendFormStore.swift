@@ -462,9 +462,21 @@ public struct SendForm {
             case .addressUpdated(let newValue):
                 let network = zcashSDKEnvironment.network.networkType
                 state.address = newValue
-                state.isValidAddress = derivationTool.isZcashAddress(state.address.data, network)
-                state.isValidTransparentAddress = derivationTool.isTransparentAddress(state.address.data, network)
-                state.isValidTexAddress = derivationTool.isTexAddress(state.address.data, network)
+
+                // Check for mock address prefixes first (payment flow demo)
+                let addr = state.address.data
+                let isPublicDonation = addr.hasPrefix("pub1")
+                let isDynamicAddress = addr.hasPrefix("dyn1")
+
+                if isPublicDonation || isDynamicAddress {
+                    state.isValidAddress = true
+                    state.isValidTransparentAddress = false
+                    state.isValidTexAddress = false
+                } else {
+                    state.isValidAddress = derivationTool.isZcashAddress(state.address.data, network)
+                    state.isValidTransparentAddress = derivationTool.isTransparentAddress(state.address.data, network)
+                    state.isValidTexAddress = derivationTool.isTexAddress(state.address.data, network)
+                }
                 if !state.isMemoInputEnabled {
                     state.memoState.text = ""
                 }

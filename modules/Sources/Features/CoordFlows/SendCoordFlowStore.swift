@@ -16,6 +16,7 @@ import NumberFormatter
 // Path
 import AddressBook
 import PaymentLinkFlow
+import PublicPaymentFlow
 import Scan
 import SendConfirmation
 import SendForm
@@ -30,6 +31,7 @@ public struct SendCoordFlow {
         case confirmWithKeystone(SendConfirmation)
         case paymentLinkFlow(PaymentLinkFlow)
         case preSendingFailure(SendConfirmation)
+        case publicPaymentSender(PublicPaymentSender)
         case requestZecConfirmation(SendConfirmation)
         case scan(Scan)
         case sendConfirmation(SendConfirmation)

@@ -15,6 +15,7 @@ import Utils
 
 // Path
 import AddressDetails
+import PublicPaymentFlow
 import RequestZec
 import ZecKeyboard
 
@@ -78,6 +79,8 @@ public struct ReceiveView: View {
                 switch store.case {
                 case let .addressDetails(store):
                     AddressDetailsView(store: store)
+                case let .publicPaymentRegistration(store):
+                    PublicPaymentRegistrationView(store: store)
                 case let .requestZec(store):
                     RequestZecView(store: store, tokenName: tokenName)
                 case let .requestZecSummary(store):

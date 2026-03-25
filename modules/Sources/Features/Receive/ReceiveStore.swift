@@ -17,6 +17,7 @@ import Models
 
 // Path
 import AddressDetails
+import PublicPaymentFlow
 import RequestZec
 import ZecKeyboard
 
@@ -25,6 +26,7 @@ public struct Receive {
     @Reducer
     public enum Path {
         case addressDetails(AddressDetails)
+        case publicPaymentRegistration(PublicPaymentRegistration)
         case requestZec(RequestZec)
         case requestZecSummary(RequestZec)
         case zecKeyboard(ZecKeyboard)
