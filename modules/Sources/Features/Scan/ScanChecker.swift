@@ -50,13 +50,21 @@ public struct RequestZecScanChecker: ScanChecker, Equatable {
         // Demo: parse mock payment requests (zcash:dyn1...?amount=X)
         let stripped = qrCode.hasPrefix("zcash:") ? String(qrCode.dropFirst(6)) : qrCode
         if stripped.hasPrefix("dyn1") || stripped.hasPrefix("pub1") {
-            // Extract address and amount from query string
             let parts = stripped.split(separator: "?", maxSplits: 1)
             let address = String(parts[0])
             if parts.count > 1 {
-                // Has query params — treat as payment request, return as address
-                // The send form will be populated with just the address
-                return .foundAddress(address.redacted)
+                // Parse amount from query params
+                let query = String(parts[1])
+                var amount = ""
+                for param in query.split(separator: "&") {
+                    let kv = param.split(separator: "=", maxSplits: 1)
+                    if kv.count == 2 && kv[0] == "amount" {
+                        amount = String(kv[1])
+                    }
+                }
+                if !amount.isEmpty {
+                    return .foundMockPaymentRequest(address, amount)
+                }
             }
             return .foundAddress(address.redacted)
         }
