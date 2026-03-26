@@ -55,7 +55,7 @@ extension Receive {
                 state.path.removeAll()
                 var addressDetailsState = AddressDetails.State.initial
                 addressDetailsState.address = publicAddress.redacted
-                addressDetailsState.maxPrivacy = false
+                addressDetailsState.maxPrivacy = true
                 addressDetailsState.addressTitle = "Public Donation Address"
                 state.path.append(.addressDetails(addressDetailsState))
                 return .none

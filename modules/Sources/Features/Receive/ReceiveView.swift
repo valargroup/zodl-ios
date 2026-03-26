@@ -179,7 +179,7 @@ public struct ReceiveView: View {
                 ) {
                     store.send(.copyToPastboard(pubAddr.redacted))
                 } qrAction: {
-                    store.send(.addressDetailsRequest(pubAddr.redacted, false))
+                    store.send(.addressDetailsRequest(pubAddr.redacted, true))
                 } requestAction: {}
                 .onTapGesture {
                     store.send(.updateCurrentFocus(.publicDonationAddress), animation: .default)
