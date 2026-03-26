@@ -140,12 +140,14 @@ public struct Receive {
                 // Rotate the LDA address on each screen appearance
                 state.ldaAddress = State.generateMockLDA()
                 state.currentFocus = .ldaAddress
-                // Register the new dyn1 address as alias of the stable u1 address
-                let alias = state.ldaAddress
+                // Register dyn1 + t1 addresses as aliases of the stable u1 address
+                let dynAlias = state.ldaAddress
+                let tAddr = state.transparentAddress
                 let owner = state.selectedWalletAccount?.unifiedAddress ?? ""
                 guard !owner.isEmpty else { return .none }
                 return .run { _ in
-                    try? await paymentServiceClient.registerAlias(alias, owner)
+                    try? await paymentServiceClient.registerAlias(dynAlias, owner)
+                    try? await paymentServiceClient.registerAlias(tAddr, owner)
                 }
 
             case .registerPublicAddressTapped:

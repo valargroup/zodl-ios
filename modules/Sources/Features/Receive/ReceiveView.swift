@@ -139,7 +139,6 @@ public struct ReceiveView: View {
             iconBg: Design.Surfaces.bgTertiary,
             bcgColor: Design.Surfaces.bgSecondary.color(colorScheme),
             expanded: store.currentFocus == .tAddress,
-            copyButton: false,
             infoAction: {
                 store.send(.infoTapped(false))
                 explainer = true
