@@ -2305,20 +2305,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                                     payloads[i].submitAt = 0
                                                 }
                                             }
-                                            var recoveryDelegatedInfos: [DelegatedShareInfo] = []
-                                            var lastShareError: Error?
-                                            for attempt in 1...3 {
-                                                do {
-                                                    recoveryDelegatedInfos = try await votingAPI.delegateShares(payloads, roundId)
-                                                    lastShareError = nil
-                                                    break
-                                                } catch {
-                                                    lastShareError = error
-                                                    logger.warning("Vote recovery: delegateShares attempt \(attempt)/3 failed: \(error)")
-                                                    if attempt < 3 { try await Task.sleep(for: .seconds(2)) }
-                                                }
-                                            }
-                                            if let lastShareError { throw lastShareError }
+                                            let recoveryDelegatedInfos = try await Self.delegateSharesWithRetry(payloads, roundId: roundId, votingAPI: votingAPI)
 
                                             // Record share delegations in DB for tracking
                                             for info in recoveryDelegatedInfos {
@@ -2342,7 +2329,6 @@ public struct Voting { // swiftlint:disable:this type_body_length
                                                 } catch {
                                                     logger.warning("Vote recovery: failed to record share delegation for share \(info.shareIndex): \(error)")
                                                 }
-                                            }
                                             logger.info("Vote recovery: shares sent for bundle \(bundleIndex)")
                                         } else {
                                             logger.error("Vote recovery: no persisted bundle for share delegation — vote will not count in tally")
@@ -2456,23 +2442,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                             // Update the stored bundle with the actual VC tree position (now known after TX confirm)
                             try await votingCrypto.storeVoteCommitmentBundle(roundId, bundleIndex, proposalId, builtBundle, vcTreePosition)
 
-                            // Retry share delegation up to 3 times — helper servers may return 503 transiently
-                            var delegatedInfos: [DelegatedShareInfo] = []
-                            var lastShareError: Error?
-                            for attempt in 1...3 {
-                                do {
-                                    delegatedInfos = try await votingAPI.delegateShares(payloads, roundId)
-                                    lastShareError = nil
-                                    break
-                                } catch {
-                                    lastShareError = error
-                                    logger.warning("delegateShares attempt \(attempt)/3 failed: \(error)")
-                                    if attempt < 3 {
-                                        try await Task.sleep(for: .seconds(2))
-                                    }
-                                }
-                            }
-                            if let lastShareError { throw lastShareError }
+                            let delegatedInfos = try await Self.delegateSharesWithRetry(payloads, roundId: roundId, votingAPI: votingAPI)
 
                             // Record share delegations in DB for tracking
                             for info in delegatedInfos {
@@ -2887,16 +2857,16 @@ public struct Voting { // swiftlint:disable:this type_body_length
     }
 
     /// Retry share delegation up to 3 times with 2-second backoff.
+    @discardableResult
     private static func delegateSharesWithRetry(
         _ payloads: [SharePayload],
         roundId: String,
         votingAPI: VotingAPIClient
-    ) async throws {
+    ) async throws -> [DelegatedShareInfo] {
         var lastShareError: Error?
         for attempt in 1...3 {
             do {
-                try await votingAPI.delegateShares(payloads, roundId)
-                return
+                return try await votingAPI.delegateShares(payloads, roundId)
             } catch {
                 lastShareError = error
                 logger.warning("delegateShares attempt \(attempt)/3 failed: \(error)")
@@ -2905,7 +2875,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 }
             }
         }
-        if let lastShareError { throw lastShareError }
+        throw lastShareError!
     }
 }
 
