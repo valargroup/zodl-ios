@@ -116,6 +116,15 @@ struct ProposalDetailView: View {
 
     @ViewBuilder
     private func voteSection() -> some View {
+        if store.isBatchMode {
+            batchVoteSection()
+        } else {
+            singleVoteSection()
+        }
+    }
+
+    @ViewBuilder
+    private func singleVoteSection() -> some View {
         let confirmedVote = store.votes[proposal.id]
         let pendingChoice: VoteChoice? = {
             guard let pending = store.pendingVote,
@@ -172,6 +181,81 @@ struct ProposalDetailView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func batchVoteSection() -> some View {
+        let confirmedVote = store.votes[proposal.id]
+        let draftChoice = store.draftVotes[proposal.id]
+        let isSubmittingThis = store.isBatchSubmitting && store.submittingProposalId == proposal.id
+
+        VStack(spacing: 12) {
+            if let confirmed = confirmedVote {
+                // Already submitted (from this or a previous batch)
+                if isSubmittingThis {
+                    submittingBanner(choice: confirmed)
+                } else {
+                    confirmedBanner(choice: confirmed)
+                }
+            } else if isSubmittingThis, let draft = draftChoice {
+                submittingBanner(choice: draft)
+            } else {
+                // Show draft banner if a draft exists
+                if let draft = draftChoice {
+                    draftBanner(choice: draft)
+                }
+
+                // Show batch error for this proposal if any
+                if let error = store.batchVoteErrors[proposal.id] {
+                    voteErrorBanner(error: error, proposalId: proposal.id)
+                }
+
+                // Always show vote buttons so the user can pick or change
+                let buttonsDisabled = store.isBatchSubmitting
+                ForEach(proposal.options, id: \.index) { option in
+                    let choice = VoteChoice.option(option.index)
+                    voteButton(
+                        title: option.label,
+                        icon: voteOptionIcon(for: option.index, total: proposal.options.count),
+                        color: voteOptionColor(for: option.index, total: proposal.options.count),
+                        isSelected: draftChoice == choice,
+                        enabled: !buttonsDisabled
+                    ) {
+                        store.send(.castVote(proposalId: proposal.id, choice: choice))
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func draftBanner(choice: VoteChoice) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "pencil.circle.fill")
+                .font(.system(size: 20))
+                .foregroundStyle(voteColor(choice))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Draft vote")
+                    .zFont(.semiBold, size: 15, style: Design.Text.primary)
+                Text(optionLabel(for: choice))
+                    .zFont(.medium, size: 14, style: Design.Text.secondary)
+            }
+            Spacer()
+            Button {
+                store.send(.clearDraftVote(proposalId: proposal.id))
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(voteColor(choice).opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(voteColor(choice).opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [6, 3]))
+        )
     }
 
     @ViewBuilder
