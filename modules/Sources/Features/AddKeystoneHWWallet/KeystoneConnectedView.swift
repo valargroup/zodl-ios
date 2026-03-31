@@ -26,20 +26,20 @@ public struct KeystoneConnectedView: View {
                     .resizable()
                     .frame(width: 148, height: 148)
                 
-                Text(L10n.Keystone.AddHWWallet.connected)
+                Text(localizable: .keystoneAddHWWalletConnected)
                     .zFont(.semiBold, size: 28, style: Design.Text.primary)
                     .padding(.top, 16)
-                
-                Text(L10n.Keystone.AddHWWallet.connectedDesc)
+
+                Text(localizable: .keystoneAddHWWalletConnectedDesc)
                     .zFont(size: 14, style: Design.Text.primary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(1.5)
                     .padding(.top, 8)
                     .screenHorizontalPadding()
-                
+
                 Spacer()
-                
-                ZashiButton(L10n.Keystone.AddHWWallet.close) {
+
+                ZashiButton(String(localizable: .keystoneAddHWWalletClose)) {
                     store.send(.closeTapped)
                 }
                 .padding(.bottom, 24)

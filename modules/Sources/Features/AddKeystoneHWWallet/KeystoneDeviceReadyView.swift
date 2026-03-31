@@ -25,11 +25,11 @@ public struct KeystoneDeviceReadyView: View {
                     .frame(width: 193, height: 32)
                     .padding(.top, 16)
 
-                Text(L10n.Keystone.AddHWWallet.deviceQuestion)
+                Text(localizable: .keystoneAddHWWalletDeviceQuestion)
                     .zFont(.semiBold, size: 24, style: Design.Text.primary)
                     .padding(.top, 24)
 
-                Text(L10n.Keystone.AddHWWallet.deviceDesc)
+                Text(localizable: .keystoneAddHWWalletDeviceDesc)
                     .zFont(size: 14, style: Design.Text.tertiary)
                     .lineSpacing(1.5)
                     .padding(.top, 8)
@@ -37,7 +37,7 @@ public struct KeystoneDeviceReadyView: View {
                 Spacer()
 
                 ZashiButton(
-                    L10n.Keystone.AddHWWallet.connectActive,
+                    String(localizable: .keystoneAddHWWalletConnectActive),
                     type: .ghost
                 ) {
                     store.send(.setBirthdayTapped)
@@ -45,7 +45,7 @@ public struct KeystoneDeviceReadyView: View {
                 .padding(.bottom, 12)
 
                 ZashiButton(
-                    L10n.Keystone.AddHWWallet.connectNew
+                    String(localizable: .keystoneAddHWWalletConnectNew)
                 ) {
                     store.send(.unlockTapped)
                 }
