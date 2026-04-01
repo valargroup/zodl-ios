@@ -12,7 +12,10 @@ import UIComponents
 
 public struct WalletBirthdayEstimateDateView: View {
     @Perception.Bindable var store: StoreOf<WalletBirthday>
-    
+
+    @State private var selectedMonth: String = ""
+    @State private var selectedYear: Int = WalletBirthday.Constants.startYear
+
     public init(store: StoreOf<WalletBirthday>) {
         self.store = store
     }
@@ -43,15 +46,22 @@ public struct WalletBirthdayEstimateDateView: View {
                 .padding(.bottom, 32)
 
                 HStack {
-                    Picker("", selection: $store.selectedMonth) {
+                    Picker("", selection: $selectedMonth) {
                         ForEach(store.months, id: \.self) { month in
                             Text(month)
                                 .zFont(size: 23, style: Design.Text.primary)
                         }
                     }
                     .pickerStyle(.wheel)
+                    .onChange(of: selectedYear) { _ in
+                        store.send(.binding(.set(\.selectedYear, selectedYear)))
+                        // sync month in case it went out of range
+                        if !store.months.contains(selectedMonth) {
+                            selectedMonth = store.months.last ?? selectedMonth
+                        }
+                    }
 
-                    Picker("", selection: $store.selectedYear) {
+                    Picker("", selection: $selectedYear) {
                         ForEach(store.years, id: \.self) { year in
                             Text("\(String(year))")
                                 .zFont(size: 23, style: Design.Text.primary)
@@ -87,12 +97,35 @@ public struct WalletBirthdayEstimateDateView: View {
                 }
 
                 ZashiButton(String(localizable: .generalNext)) {
+                    store.send(.binding(.set(\.selectedMonth, selectedMonth)))
+                    store.send(.binding(.set(\.selectedYear, selectedYear)))
                     store.send(.estimateHeightRequested)
                 }
                 .padding(.bottom, 24)
             }
-            .onAppear { store.send(.onAppear) }
+            .onAppear {
+                store.send(.onAppear)
+                selectedMonth = store.selectedMonth
+                selectedYear = store.selectedYear
+            }
+            .onChange(of: store.selectedMonth) { newMonth in
+                selectedMonth = newMonth
+            }
             .zashiBack()
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarItems(
+                trailing:
+                    Button {
+                        store.send(.helpSheetRequested)
+                    } label: {
+                        Asset.Assets.Icons.help.image
+                            .zImage(size: 24, style: Design.Text.primary)
+                            .padding(Design.Spacing.navBarButtonPadding)
+                    }
+            )
+            .screenHorizontalPadding()
+            .applyScreenBackground()
+            .screenTitle(store.isKeystoneFlow ? "" : String(localizable: .importWalletButtonRestoreWallet))
         }
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarItems(

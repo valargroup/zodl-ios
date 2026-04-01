@@ -64,7 +64,7 @@ public struct AddKeystoneHWWalletCoordFlowView: View {
     }
     
     @ViewBuilder private func helpSheetContent() -> some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             Text(localizable: .restoreWalletHelpTitle)
                 .zFont(.semiBold, size: 24, style: Design.Text.primary)
                 .padding(.top, 24)
@@ -75,7 +75,7 @@ public struct AddKeystoneHWWalletCoordFlowView: View {
                     .zImage(size: 20, style: Design.Text.primary)
                 
                 if let attrText = try? AttributedString(
-                    markdown: String(localizable: .restoreWalletHelpBirthday),
+                    markdown: String(localizable: .addKeystoneWalletHelpBirthday),
                     including: \.zashiApp
                 ) {
                     ZashiText(withAttributedString: attrText, colorScheme: colorScheme)

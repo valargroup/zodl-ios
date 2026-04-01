@@ -62,7 +62,9 @@ extension AddKeystoneHWWalletCoordFlow {
                 state.path.append(.walletBirthday(birthdayState))
                 return .none
 
-            case .path(.element(id: _, action: .estimateBirthdaysDate(.helpSheetRequested))):
+            case .path(.element(id: _, action: .estimateBirthdaysDate(.helpSheetRequested))),
+                .path(.element(id: _, action: .estimatedBirthday(.helpSheetRequested))),
+                .path(.element(id: _, action: .walletBirthday(.helpSheetRequested))):
                 state.isHelpSheetPresented.toggle()
                 return .none
 
@@ -88,11 +90,10 @@ extension AddKeystoneHWWalletCoordFlow {
                         state.birthday = estimatedBirthdayState.estimatedHeight
                     }
                 }
-                if let id = state.path.ids.first(where: {
-                    if case .keystoneDeviceReady = state.path[id: $0] { return true }
-                    return false
-                }) {
-                    return .send(.path(.element(id: id, action: .keystoneDeviceReady(.unlockTapped(state.birthday)))))
+                for id in state.path.ids {
+                    if case .keystoneDeviceReady = state.path[id: id] {
+                        return .send(.path(.element(id: id, action: .keystoneDeviceReady(.unlockTapped(state.birthday)))))
+                    }
                 }
                 return .none
 
@@ -104,11 +105,10 @@ extension AddKeystoneHWWalletCoordFlow {
                         state.birthday = walletBirthdayState.estimatedHeight
                     }
                 }
-                if let id = state.path.ids.first(where: {
-                    if case .keystoneDeviceReady = state.path[id: $0] { return true }
-                    return false
-                }) {
-                    return .send(.path(.element(id: id, action: .keystoneDeviceReady(.unlockTapped(state.birthday)))))
+                for id in state.path.ids {
+                    if case .keystoneDeviceReady = state.path[id: id] {
+                        return .send(.path(.element(id: id, action: .keystoneDeviceReady(.unlockTapped(state.birthday)))))
+                    }
                 }
                 return .none
 
