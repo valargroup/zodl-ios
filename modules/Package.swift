@@ -1061,6 +1061,7 @@ let package = Package(
         .target(
             name: "URIParser",
             dependencies: [
+                "Pasteboard",
                 "DerivationTool",
                 "Models",
                 .product(name: "ZcashPaymentURI", package: "zcash-swift-payment-uri"),
