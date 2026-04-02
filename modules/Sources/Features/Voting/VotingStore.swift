@@ -672,7 +672,6 @@ public struct Voting { // swiftlint:disable:this type_body_length
         case pollShareStatus
 
         // Batch voting
-        case toggleBatchMode
         case setDraftVote(proposalId: UInt32, choice: VoteChoice)
         case clearDraftVote(proposalId: UInt32)
         case submitAllDrafts
@@ -2585,18 +2584,6 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 return .none
 
             // MARK: - Batch Voting
-
-            case .toggleBatchMode:
-                guard !state.isSubmittingVote, !state.isBatchSubmitting else { return .none }
-                state.$featureFlags.withLock { $0.batchVoting.toggle() }
-                // Clear drafts when switching off batch mode
-                if !state.isBatchMode {
-                    state.draftVotes = [:]
-                    state.batchSubmissionStatus = .idle
-                    state.batchVoteErrors = [:]
-                    Self.clearPersistedDrafts(roundId: state.roundId)
-                }
-                return .none
 
             case let .setDraftVote(proposalId, choice):
                 guard state.votes[proposalId] == nil else { return .none }
