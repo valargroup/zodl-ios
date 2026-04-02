@@ -1631,18 +1631,25 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 return .none
 
             case .delegationApproved:
-                if !state.isKeystoneUser {
-                    state.screenStack = [.proposalList]
-                    return .send(.startDelegationProof)
-                }
+                // User is already on the proposal list; delegation signing screen
+                // was pushed on top. Just trigger the proof pipeline.
                 return .send(.startDelegationProof)
 
             case .delegationRejected:
-
                 state.pendingGovernancePczt = nil
                 state.pendingUnsignedDelegationPczt = nil
                 state.keystoneSigningStatus = .idle
                 state.keystoneBundleSignatures = []
+                state.isDelegationProofInFlight = false
+                // Cancel any pending submission that triggered delegation.
+                state.pendingVote = nil
+                state.pendingBatchSubmission = false
+                state.isSubmittingVote = false
+                // Pop the delegation signing screen back to proposals.
+                if state.screenStack.last == .delegationSigning {
+                    state.screenStack.removeLast()
+                    return .none
+                }
                 return .send(.dismissFlow)
 
             case .retryKeystoneSigning:
@@ -2098,10 +2105,29 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 state.isDelegationProofInFlight = false
                 state.currentKeystoneBundleIndex = 0
                 state.keystoneBundleSignatures = []
+
+                // Pop the delegation signing screen if it was pushed for deferred delegation.
+                if state.screenStack.last == .delegationSigning {
+                    state.screenStack.removeLast()
+                }
+
                 let roundId = state.roundId
-                return .run { [votingCrypto] _ in
+                // Auto-resume pending vote/batch submission after delegation completes.
+                let resumeAction: Action?
+                if state.pendingVote != nil {
+                    resumeAction = .confirmVote
+                } else if state.pendingBatchSubmission {
+                    state.pendingBatchSubmission = false
+                    resumeAction = .submitAllDrafts
+                } else {
+                    resumeAction = nil
+                }
+                return .run { [votingCrypto] send in
                     await votingCrypto.refreshState(roundId)
                     try await votingCrypto.clearRecoveryState(roundId)
+                    if let resumeAction {
+                        await send(resumeAction)
+                    }
                 }
 
             case .delegationProofFailed(let error):
@@ -2147,6 +2173,16 @@ public struct Voting { // swiftlint:disable:this type_body_length
             case .confirmVote:
                 guard let pending = state.pendingVote else { return .none }
                 guard state.activeSession != nil else { return .none }
+
+                // Keystone: delegation requires QR signing UI, so route through
+                // the delegation signing screen before vote submission.
+                if state.isKeystoneUser && !state.isDelegationReady {
+                    state.isSubmittingVote = true
+                    state.voteSubmissionError = nil
+                    state.screenStack.append(.delegationSigning)
+                    return .send(.startDelegationProof)
+                }
+
                 state.votes[pending.proposalId] = pending.choice
                 state.pendingVote = nil
                 state.isSubmittingVote = true
@@ -2576,6 +2612,14 @@ public struct Voting { // swiftlint:disable:this type_body_length
             case .submitAllDrafts:
                 guard state.canSubmitBatch else { return .none }
                 guard state.activeSession != nil else { return .none }
+
+                // Keystone: delegation requires QR signing UI, so route through
+                // the delegation signing screen before batch submission.
+                if state.isKeystoneUser && !state.isDelegationReady {
+                    state.pendingBatchSubmission = true
+                    state.screenStack.append(.delegationSigning)
+                    return .send(.startDelegationProof)
+                }
 
                 let drafts = state.draftVotes.sorted { $0.key < $1.key }
                 let totalCount = drafts.count
