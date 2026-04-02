@@ -15,7 +15,7 @@ public struct FeatureFlags: Equatable {
     public init(
         addUAtoMemo: Bool = false,
         appLaunchBiometric: Bool = true,
-        batchVoting: Bool = false,
+        batchVoting: Bool = true,
         flexa: Bool = true,
         selectText: Bool = true
     ) {
