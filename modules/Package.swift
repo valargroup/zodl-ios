@@ -1082,6 +1082,7 @@ let package = Package(
         .target(
             name: "Utils",
             dependencies: [
+                "Generated",
                 .product(name: "ZcashLightClientKit", package: "zcash-swift-wallet-sdk"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
                 .product(name: "ComposableArchitecture", package: "swift-composable-architecture")
