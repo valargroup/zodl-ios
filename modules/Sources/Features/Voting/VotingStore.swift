@@ -356,6 +356,10 @@ public struct Voting { // swiftlint:disable:this type_body_length
         /// Label for the current vote submission step, with bundle progress when applicable.
         public var voteSubmissionStepLabel: String? {
             guard let step = voteSubmissionStep else { return nil }
+            // Show delegation proof percentage during authorization step.
+            if step == .authorizingVote, case .generating(let progress) = delegationProofStatus {
+                return "Authorizing vote... \(Int(progress * 100))%"
+            }
             if bundleCount > 1, let idx = currentVoteBundleIndex {
                 let bundleLabel = "(\(idx + 1)/\(bundleCount))"
                 switch step {
