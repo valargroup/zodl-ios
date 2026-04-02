@@ -1116,6 +1116,7 @@ let package = Package(
         .target(
             name: "WalletBirthday",
             dependencies: [
+                "Pasteboard",
                 "Generated",
                 "Models",
                 "SDKSynchronizer",
