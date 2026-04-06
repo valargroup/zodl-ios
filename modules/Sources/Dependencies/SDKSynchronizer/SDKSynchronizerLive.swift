@@ -182,6 +182,12 @@ extension SDKSynchronizerClient: DependencyKey {
                     return .partial(txIds: txIds, statuses: statuses)
                 }
             },
+            createProposedTransactionsWithoutSubmitting: { proposal, spendingKey in
+                try await synchronizer.createProposedTransactionsWithoutSubmitting(
+                    proposal: proposal,
+                    spendingKey: spendingKey
+                )
+            },
             proposeShielding: { accountUUID, shieldingThreshold, memo, transparentReceiver in
                 try await synchronizer.proposeShielding(
                     accountUUID: accountUUID,
@@ -189,6 +195,9 @@ extension SDKSynchronizerClient: DependencyKey {
                     memo: memo,
                     transparentReceiver: transparentReceiver
                 )
+            },
+            submitTransaction: { rawTx, endpoint in
+                try await synchronizer.submitTransaction(rawTx, to: endpoint)
             },
             isSeedRelevantToAnyDerivedAccount: { seed in
                 try await synchronizer.isSeedRelevantToAnyDerivedAccount(seed: seed)

@@ -11,6 +11,8 @@ directly impact users rather than highlighting other crucial architectural updat
 
 - Detect spent orchard notes early via PIR (Private Information Retrieval) before the scanner catches up. A "Detected spend" placeholder appears in the activity feed and the balance updates immediately.
 - Wallet birthday picker added to Keystone hardware wallet import flow, allowing users to enter a block height or estimate from a date.
+- Multi-server transaction submission: transactions are now created locally and broadcast to all user-selected servers in parallel. First successful response wins, eliminating single-server failure as a blocker.
+- Server Setup UI reworked to checkbox multi-select. All hardcoded servers selected by default.
 
 ## 3.2.0 build 5 (2026-03-09)
 
