@@ -43,11 +43,9 @@ final class AddKeystoneHWWalletTests: XCTestCase {
         await store.finish()
     }
 
-    // Verifies that when .importAccount is called with a specific birthday height,
-    // that exact value is forwarded to sdkSynchronizer.importAccount as the walletBirthday parameter.
-    func testImportAccount_withBirthday_forwardsBirthdayToSDK() async throws {
-        let expectedBirthday = BlockHeight(1_700_000)
-        let capturedBirthday = ActorIsolated<BlockHeight?>(nil)
+    // Verifies that .importAccount calls sdkSynchronizer.importAccount.
+    func testImportAccount_callsSDK() async throws {
+        let importCalled = ActorIsolated(false)
 
         var state = AddKeystoneHWWallet.State.initial
         state.zcashAccounts = try makeZcashAccounts()
@@ -60,48 +58,18 @@ final class AddKeystoneHWWalletTests: XCTestCase {
 
         store.dependencies.keystoneHandler = .noOp
         store.dependencies.sdkSynchronizer = .mocked(
-            importAccount: { _, _, _, _, _, _, birthday in
-                await capturedBirthday.setValue(birthday)
+            importAccount: { _, _, _, _, _, _ in
+                await importCalled.setValue(true)
                 return nil
             }
         )
 
-        await store.send(.importAccount(expectedBirthday))
+        await store.send(.importAccount)
 
         await store.finish()
 
-        let captured = await capturedBirthday.value
-        XCTAssertEqual(captured, expectedBirthday, "Birthday should be forwarded to sdkSynchronizer.importAccount")
-    }
-
-    // Verifies that when .importAccount is called with a nil birthday,
-    // nil is forwarded to sdkSynchronizer.importAccount (letting the SDK use its default).
-    func testImportAccount_withNilBirthday_forwardsNilToSDK() async throws {
-        let capturedBirthday = ActorIsolated<BlockHeight?>(BlockHeight(999))
-
-        var state = AddKeystoneHWWallet.State.initial
-        state.zcashAccounts = try makeZcashAccounts()
-
-        let store = TestStore(
-            initialState: state
-        ) {
-            AddKeystoneHWWallet()
-        }
-
-        store.dependencies.keystoneHandler = .noOp
-        store.dependencies.sdkSynchronizer = .mocked(
-            importAccount: { _, _, _, _, _, _, birthday in
-                await capturedBirthday.setValue(birthday)
-                return nil
-            }
-        )
-
-        await store.send(.importAccount(nil))
-
-        await store.finish()
-
-        let captured = await capturedBirthday.value
-        XCTAssertNil(captured, "Nil birthday should be forwarded as nil to sdkSynchronizer.importAccount")
+        let called = await importCalled.value
+        XCTAssertTrue(called, "importAccount should call sdkSynchronizer.importAccount")
     }
 
     // Verifies the guard clause: when no zcashAccounts are set on state,
@@ -115,24 +83,22 @@ final class AddKeystoneHWWalletTests: XCTestCase {
 
         store.dependencies.keystoneHandler = .noOp
 
-        await store.send(.importAccount(BlockHeight(1_700_000)))
+        await store.send(.importAccount)
 
         await store.finish()
     }
 
     // End-to-end coordinator test: simulates the full birthday picker flow.
-    // Sets up the navigation path with an account selection and a wallet birthday (estimatedHeight = 1_700_000),
-    // then sends .restoreTapped. Verifies the coordinator reads the birthday from the path,
-    // calls performKeystoneImport, and the birthday value reaches sdkSynchronizer.importAccount.
-    func testCoordinator_restoreTapped_forwardsBirthdayToImportAccount() async throws {
-        let expectedBirthday = BlockHeight(1_700_000)
-        let capturedBirthday = ActorIsolated<BlockHeight?>(nil)
+    // Sets up the navigation path with an account selection and a wallet birthday,
+    // then sends .restoreTapped. Verifies the coordinator calls importAccount.
+    func testCoordinator_restoreTapped_callsImportAccount() async throws {
+        let importCalled = ActorIsolated(false)
 
         var accountSelectionState = AddKeystoneHWWallet.State.initial
         accountSelectionState.zcashAccounts = try makeZcashAccounts()
 
         var walletBirthdayState = WalletBirthday.State.initial
-        walletBirthdayState.estimatedHeight = expectedBirthday
+        walletBirthdayState.estimatedHeight = BlockHeight(1_700_000)
 
         var state = AddKeystoneHWWalletCoordFlow.State()
         state.path.append(.accountHWWalletSelection(accountSelectionState))
@@ -147,8 +113,8 @@ final class AddKeystoneHWWalletTests: XCTestCase {
         } withDependencies: {
             $0.keystoneHandler = .noOp
             $0.sdkSynchronizer = .mocked(
-                importAccount: { _, _, _, _, _, _, birthday in
-                    await capturedBirthday.setValue(birthday)
+                importAccount: { _, _, _, _, _, _ in
+                    await importCalled.setValue(true)
                     return nil
                 }
             )
@@ -159,7 +125,7 @@ final class AddKeystoneHWWalletTests: XCTestCase {
         // Give the effect time to run
         try await Task.sleep(nanoseconds: 200_000_000)
 
-        let captured = await capturedBirthday.value
-        XCTAssertEqual(captured, expectedBirthday, "Coordinator should forward birthday into account import")
+        let called = await importCalled.value
+        XCTAssertTrue(called, "Coordinator should call importAccount")
     }
 }

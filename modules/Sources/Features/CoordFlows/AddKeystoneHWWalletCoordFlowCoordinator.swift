@@ -49,11 +49,6 @@ extension AddKeystoneHWWalletCoordFlow {
                 return .none
 
             case .path(.element(id: _, action: .walletBirthday(.restoreTapped))):
-                for element in state.path {
-                    if case .walletBirthday(let walletBirthdayState) = element {
-                        state.birthday = walletBirthdayState.estimatedHeight
-                    }
-                }
                 return performKeystoneImport(&state)
 
                 // MARK: - Estimate Birthday Date
@@ -77,11 +72,6 @@ extension AddKeystoneHWWalletCoordFlow {
                 return .none
 
             case .path(.element(id: _, action: .estimatedBirthday(.restoreTapped))):
-                for element in state.path {
-                    if case .estimatedBirthday(let estimatedBirthdayState) = element {
-                        state.birthday = estimatedBirthdayState.estimatedHeight
-                    }
-                }
                 return performKeystoneImport(&state)
 
                 // MARK: - Self
@@ -104,11 +94,10 @@ extension AddKeystoneHWWalletCoordFlow {
     }
 
     private func performKeystoneImport(_ state: inout AddKeystoneHWWalletCoordFlow.State) -> Effect<AddKeystoneHWWalletCoordFlow.Action> {
-        let birthday = state.birthday
         // Find the accountHWWalletSelection in the path and send importAccount
         for (id, element) in zip(state.path.ids, state.path) {
             if case .accountHWWalletSelection = element {
-                return .send(.path(.element(id: id, action: .accountHWWalletSelection(.importAccount(birthday)))))
+                return .send(.path(.element(id: id, action: .accountHWWalletSelection(.importAccount))))
             }
         }
         return .none

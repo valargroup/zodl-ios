@@ -58,7 +58,7 @@ public struct AddKeystoneHWWallet {
         case backToHomeTapped
         case binding(BindingAction<AddKeystoneHWWallet.State>)
         case forgetThisDeviceTapped
-        case importAccount(BlockHeight?)
+        case importAccount
         case loadedWalletAccounts([WalletAccount], AccountUUID)
         case onAppear
         case readyToScanTapped
@@ -99,7 +99,7 @@ public struct AddKeystoneHWWallet {
                 // Intercepted by the coordinator to navigate to the birthday picker
                 return .none
 
-            case .importAccount(let birthday):
+            case .importAccount:
                 guard let account = state.zcashAccounts, let firstAccount = account.accounts.first else {
                     return .none
                 }
@@ -111,8 +111,7 @@ public struct AddKeystoneHWWallet {
                             Zip32AccountIndex(firstAccount.index),
                             AccountPurpose.spending,
                             String(localizable: .accountsKeystone),
-                            String(localizable: .accountsKeystone).lowercased(),
-                            birthday
+                            String(localizable: .accountsKeystone).lowercased()
                         )
                         if let uuid {
                             await send(.accountImported(uuid))

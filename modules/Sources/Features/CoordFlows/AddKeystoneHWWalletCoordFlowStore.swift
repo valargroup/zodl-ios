@@ -30,7 +30,6 @@ public struct AddKeystoneHWWalletCoordFlow {
     @ObservableState
     public struct State {
         public var addKeystoneHWWalletState = AddKeystoneHWWallet.State.initial
-        public var birthday: BlockHeight? = nil
         public var isHelpSheetPresented = false
         public var path = StackState<Path.State>()
 
