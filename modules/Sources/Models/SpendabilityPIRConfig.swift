@@ -15,8 +15,8 @@ public struct SpendabilityPIRConfig: Sendable {
     /// distribution builds use the production endpoints.
     #if SECANT_DISTRIB
     public static let `default` = SpendabilityPIRConfig(
-        serverUrl: "https://pir.zashi.app",
-        witnessServerUrl: "https://pir.zashi.app/witness"
+        serverUrl: "https://164-92-137-124.sslip.io/nullifier",
+        witnessServerUrl: "https://164-92-137-124.sslip.io/witness"
     )
     #else
     public static let `default` = SpendabilityPIRConfig(
