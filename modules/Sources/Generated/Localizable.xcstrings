@@ -6900,23 +6900,6 @@
         }
       }
     },
-    "serverSetup.active": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Active"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activo"
-          }
-        }
-      }
-    },
     "serverSetup.alert.failed.message": {
       "extractionState": "manual",
       "localizations": {
@@ -7015,6 +6998,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Predeterminado"
+          }
+        }
+      }
+    },
+    "serverSetup.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activo"
+          }
+        }
+      }
+    },
+    "serverSetup.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select the servers you'd like to use. Transactions are sent to all selected servers for reliability."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona los servidores que deseas usar. Las transacciones se envían a todos los servidores seleccionados para mayor fiabilidad."
           }
         }
       }

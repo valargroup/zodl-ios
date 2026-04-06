@@ -6,6 +6,10 @@ directly impact users rather than highlighting other crucial architectural updat
 
 ## [Unreleased]
 
+### Added
+- Multi-server transaction submission: transactions are now created locally and broadcast to all user-selected servers in parallel. First successful response wins, eliminating single-server failure as a blocker.
+- Server Setup UI reworked to checkbox multi-select. All hardcoded servers selected by default.
+
 ## 3.2.0 build 5 (2026-03-09)
 
 ### Changed
