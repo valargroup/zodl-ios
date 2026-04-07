@@ -110,7 +110,7 @@ let package = Package(
         .package(url: "https://github.com/pacu/zcash-swift-payment-uri", from: "1.0.1"),
         .package(url: "https://github.com/airbnb/lottie-spm.git", from: "4.5.2"),
         .package(url: "https://github.com/KeystoneHQ/keystone-sdk-ios/", from: "0.0.1"),
-        .package(url: "https://github.com/valargroup/BigDecimal.git", branch: "fix/uncomment-platforms"),
+        .package(url: "https://github.com/mgriebling/BigDecimal.git", from: Version(stringLiteral: "2.2.3")),
         .package(url: "https://github.com/siteline/swiftui-introspect", from: "26.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-navigation", from: "2.5.1"),
         .package(url: "https://github.com/liamnichols/xcstrings-tool-plugin", from: "1.2.0")
