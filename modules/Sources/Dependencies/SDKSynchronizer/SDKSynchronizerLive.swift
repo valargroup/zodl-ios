@@ -330,7 +330,8 @@ extension SDKSynchronizerClient: DependencyKey {
             checkWalletSpendability: { pirServerUrl, progress in
                 try await synchronizer.checkWalletSpendability(
                     pirServerUrl: pirServerUrl,
-                    progress: progress
+                    progress: progress,
+                    maxDepth: 20
                 )
             },
             getPIRPendingSpends: {
