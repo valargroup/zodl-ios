@@ -8,7 +8,6 @@
 import XCTest
 import OSLog
 import ZcashLightClientKit
-import Utils
 @testable import secant_testnet
 
 class LoggerTests: XCTestCase {

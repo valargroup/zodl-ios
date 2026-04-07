@@ -8,7 +8,6 @@
 import XCTest
 import MnemonicSwift
 import ZcashLightClientKit
-import Utils
 @testable import secant_testnet
 
 class SensitiveDataTests: XCTestCase {

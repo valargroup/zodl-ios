@@ -7,9 +7,6 @@
 
 import XCTest
 import ZcashLightClientKit
-import FileManager
-import Utils
-import DatabaseFiles
 @testable import secant_testnet
 
 class DatabaseFilesTests: XCTestCase {

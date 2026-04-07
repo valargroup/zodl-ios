@@ -7,7 +7,6 @@
 
 import XCTest
 import ComposableArchitecture
-import Root
 import ZcashLightClientKit
 @testable import secant_testnet
 
