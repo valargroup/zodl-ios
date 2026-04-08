@@ -56,7 +56,7 @@ extension Root {
                 if state.walletConfig.isEnabled(.pirSpendability) {
                     effects.append(.send(.initialization(.checkSpendabilityPIR)))
                 }
-                if state.walletConfig.isEnabled(.pirWitness) {
+                if state.walletConfig.isEnabled(.pirWitness) && !state.walletConfig.isEnabled(.pirSpendability) {
                     effects.append(.send(.initialization(.checkWitnessPIR)))
                 }
                 return .merge(effects)
