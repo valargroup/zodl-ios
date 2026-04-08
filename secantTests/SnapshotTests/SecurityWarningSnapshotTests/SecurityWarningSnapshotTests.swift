@@ -7,7 +7,6 @@
 
 import XCTest
 import ComposableArchitecture
-import SecurityWarning
 import ZcashLightClientKit
 @testable import secant_testnet
 

@@ -7,8 +7,6 @@
 
 import XCTest
 import ZcashLightClientKit
-import Models
-import Generated
 
 final class TransactionStateTests: XCTestCase {
     // MARK: - Title tests (String & Color)

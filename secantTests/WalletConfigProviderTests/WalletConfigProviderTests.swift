@@ -8,9 +8,6 @@
 import Combine
 import XCTest
 import ComposableArchitecture
-import WalletConfigProvider
-import Models
-import Root
 import ZcashLightClientKit
 @testable import secant_testnet
 

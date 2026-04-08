@@ -7,7 +7,6 @@
 
 import XCTest
 import ZcashLightClientKit
-import BalanceFormatter
 @testable import secant_testnet
 
 final class ZatoshiStringRepresentationCommaTests: XCTestCase {

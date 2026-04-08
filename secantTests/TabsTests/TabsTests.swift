@@ -8,10 +8,6 @@
 import Combine
 import XCTest
 import ComposableArchitecture
-import Tabs
-import Generated
-import Models
-import Utils
 @testable import secant_testnet
 @testable import ZcashLightClientKit
 

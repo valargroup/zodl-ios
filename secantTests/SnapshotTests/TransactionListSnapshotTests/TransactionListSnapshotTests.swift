@@ -8,9 +8,6 @@
 import XCTest
 import ComposableArchitecture
 import ZcashLightClientKit
-import Models
-import TransactionList
-import Home
 @testable import secant_testnet
 
 class TransactionListSnapshotTests: XCTestCase {

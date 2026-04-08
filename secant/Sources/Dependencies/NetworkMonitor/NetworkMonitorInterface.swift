@@ -1,0 +1,21 @@
+//
+//  NetworkMonitorInterface.swift
+//  Zashi
+//
+//  Created by Lukáš Korba on 04-07-2025.
+//
+
+import ComposableArchitecture
+import Combine
+
+extension DependencyValues {
+    var networkMonitor: NetworkMonitorClient {
+        get { self[NetworkMonitorClient.self] }
+        set { self[NetworkMonitorClient.self] = newValue }
+    }
+}
+
+@DependencyClient
+struct NetworkMonitorClient {
+    let networkMonitorStream: () -> AnyPublisher<Bool, Never>
+}

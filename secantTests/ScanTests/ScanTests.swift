@@ -8,8 +8,6 @@
 import XCTest
 import ComposableArchitecture
 import ZcashLightClientKit
-import Scan
-import Generated
 @testable import secant_testnet
 
 @MainActor

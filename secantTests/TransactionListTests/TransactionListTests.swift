@@ -8,9 +8,6 @@
 import XCTest
 import ComposableArchitecture
 import ZcashLightClientKit
-import Pasteboard
-import Models
-import TransactionList
 @testable import secant_testnet
 
 @MainActor

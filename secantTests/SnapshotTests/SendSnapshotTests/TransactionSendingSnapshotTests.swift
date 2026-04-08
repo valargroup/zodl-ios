@@ -9,10 +9,6 @@ import XCTest
 import ComposableArchitecture
 import SwiftUI
 import ZcashLightClientKit
-import SendForm
-import UIComponents
-import Utils
-import SendConfirmation
 @testable import secant_testnet
 
 class SendSnapshotTests: XCTestCase {

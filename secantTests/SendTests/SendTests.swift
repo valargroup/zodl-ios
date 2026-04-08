@@ -8,14 +8,6 @@
 import XCTest
 import ComposableArchitecture
 import ZcashLightClientKit
-import AudioServices
-import NumberFormatter
-import Models
-import WalletStorage
-import SendConfirmation
-import SendForm
-import UIComponents
-import WalletBalances
 @testable import secant_testnet
 
 // swiftlint:disable type_body_length
