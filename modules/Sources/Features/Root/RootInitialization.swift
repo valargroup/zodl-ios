@@ -217,7 +217,7 @@ extension Root {
                     if state.walletConfig.isEnabled(.pirSpendability) {
                         effects.append(.send(.initialization(.checkSpendabilityPIR)))
                     }
-                    if state.walletConfig.isEnabled(.pirWitness) {
+                    if state.walletConfig.isEnabled(.pirWitness) && !state.walletConfig.isEnabled(.pirSpendability) {
                         effects.append(.send(.initialization(.checkWitnessPIR)))
                     }
                     return .merge(effects)
@@ -241,10 +241,14 @@ extension Root {
 
             case .initialization(.checkSpendabilityPIRResult(let result)):
                 state.$pirSpendabilityResult.withLock { $0 = result }
-                return .merge(
+                var effects: [Effect<Root.Action>] = [
                     .send(.fetchTransactionsForTheSelectedAccount),
                     .send(.home(.walletBalances(.updateBalances)))
-                )
+                ]
+                if state.walletConfig.isEnabled(.pirWitness) {
+                    effects.append(.send(.initialization(.checkWitnessPIR)))
+                }
+                return .merge(effects)
 
             case .initialization(.checkWitnessPIR):
                 guard state.walletConfig.isEnabled(.pirWitness) else {

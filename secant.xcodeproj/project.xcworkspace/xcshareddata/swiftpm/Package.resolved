@@ -68,8 +68,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/devicekit/DeviceKit.git",
       "state" : {
-        "revision" : "581df61650bc457ec00373a592a84be3e7468eb1",
-        "version" : "5.7.0"
+        "revision" : "56b997e8a61707218f9af09f32b2a1d1806fd792",
+        "version" : "5.8.0"
       }
     },
     {
@@ -77,8 +77,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/hmlongco/Factory.git",
       "state" : {
-        "revision" : "587995f7d5cc667951d635fbf6b4252324ba0439",
-        "version" : "2.3.2"
+        "revision" : "ccc898f21992ebc130bc04cc197460a5ae230bcf",
+        "version" : "2.5.3"
       }
     },
     {
@@ -194,8 +194,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-composable-architecture",
       "state" : {
-        "revision" : "ce8ee57840b2b46cd6b5cf06ed0526dd1d690126",
-        "version" : "1.25.4"
+        "revision" : "1eaa6fa2ee57ac42843283b9fd3457af408c858d",
+        "version" : "1.25.5"
       }
     },
     {
@@ -275,8 +275,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-navigation",
       "state" : {
-        "revision" : "e7441dc4dfec6a4ae929e614e3c1e67c6639d164",
-        "version" : "2.7.0"
+        "revision" : "32f35241b8be0719c4c7f00eb27713b1cadb6248",
+        "version" : "2.8.0"
       }
     },
     {
@@ -428,8 +428,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mgriebling/UInt128.git",
       "state" : {
-        "revision" : "f32052e906fd125936fef2d16e3ad284d50d68ed",
-        "version" : "3.2.0"
+        "revision" : "59dac4f14d657fd60bacfdfb7398d38b450af74f",
+        "version" : "3.1.5"
       }
     },
     {
@@ -474,7 +474,7 @@
       "location" : "https://github.com/valargroup/zcash-swift-wallet-sdk.git",
       "state" : {
         "branch" : "denver-demo",
-        "revision" : "0a96a6dcc0ff97c500c3012f7bd699f71f8f5e8b"
+        "revision" : "db76fa84f71601e841f714385414bc6d453620f5"
       }
     }
   ],
