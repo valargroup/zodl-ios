@@ -107,7 +107,7 @@ let package = Package(
         .package(url: "https://github.com/zcash-hackworks/MnemonicSwift", from: "2.2.5"),
         .package(url: "https://github.com/valargroup/zcash-swift-wallet-sdk.git", branch: "denver-demo"),
         .package(path: "../vendor/flexa-ios"),
-        .package(url: "https://github.com/pacu/zcash-swift-payment-uri", from: "1.0.1"),
+        .package(path: "../vendor/zcash-swift-payment-uri"),
         .package(url: "https://github.com/airbnb/lottie-spm.git", from: "4.5.2"),
         .package(url: "https://github.com/KeystoneHQ/keystone-sdk-ios/", from: "0.0.1"),
         .package(url: "https://github.com/valargroup/BigDecimal.git", branch: "fix/uncomment-platforms"),
