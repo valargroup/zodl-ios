@@ -22,6 +22,7 @@ public struct AddKeystoneHWWallet {
     public struct State: Equatable {
         public var isInAppBrowserOn = false
         public var isKSAccountSelected = false
+        public var randomSuccessIconIndex = 0
         @Shared(.inMemory(.selectedWalletAccount)) public var selectedWalletAccount: WalletAccount? = nil
         @Shared(.inMemory(.walletAccounts)) public var walletAccounts: [WalletAccount] = []
         public var zcashAccounts: ZcashAccounts?
@@ -45,9 +46,15 @@ public struct AddKeystoneHWWallet {
             return ""
         }
         
-        public init(
-        ) {
+        public var successIlustration: Image {
+            switch randomSuccessIconIndex {
+            case 1: return Asset.Assets.Illustrations.success1.image
+            default: return Asset.Assets.Illustrations.success2.image
+            }
+            
         }
+        
+        public init() { }
     }
 
     public enum Action: BindableAction, Equatable {
@@ -57,11 +64,14 @@ public struct AddKeystoneHWWallet {
         case accountTapped
         case backToHomeTapped
         case binding(BindingAction<AddKeystoneHWWallet.State>)
+        case closeTapped
         case forgetThisDeviceTapped
         case loadedWalletAccounts([WalletAccount], AccountUUID)
+        case nextTapped
         case onAppear
         case readyToScanTapped
-        case unlockTapped
+        case setBirthdayTapped
+        case unlockTapped(BlockHeight?)
         case viewTutorialTapped
     }
 
@@ -79,9 +89,13 @@ public struct AddKeystoneHWWallet {
                 // __LD TESTED
                 state.isKSAccountSelected = false
                 state.zcashAccounts = nil
+                state.randomSuccessIconIndex = Int.random(in: 1...2)
                 return .none
             
             case .backToHomeTapped:
+                return .none
+
+            case .closeTapped:
                 return .none
                 
             case .binding:
@@ -94,7 +108,7 @@ public struct AddKeystoneHWWallet {
             case .forgetThisDeviceTapped:
                 return .none
 
-            case .unlockTapped:
+            case .unlockTapped(let birthday):
                 guard let account = state.zcashAccounts, let firstAccount = account.accounts.first else {
                     return .none
                 }
@@ -106,7 +120,8 @@ public struct AddKeystoneHWWallet {
                             Zip32AccountIndex(firstAccount.index),
                             AccountPurpose.spending,
                             String(localizable: .accountsKeystone),
-                            String(localizable: .accountsKeystone).lowercased()
+                            String(localizable: .accountsKeystone).lowercased(),
+                            birthday
                         )
                         if let uuid {
                             await send(.accountImported(uuid))
@@ -140,6 +155,12 @@ public struct AddKeystoneHWWallet {
                 }
                 return .none
                 
+            case .nextTapped:
+                return .none
+
+            case .setBirthdayTapped:
+                return .none
+
             case .readyToScanTapped:
                 keystoneHandler.resetQRDecoder()
                 return .none

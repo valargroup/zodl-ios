@@ -12,7 +12,10 @@ import UIComponents
 
 public struct WalletBirthdayEstimateDateView: View {
     @Perception.Bindable var store: StoreOf<WalletBirthday>
-    
+
+    @State private var selectedMonth: String = ""
+    @State private var selectedYear: Int = WalletBirthday.Constants.startYear
+
     public init(store: StoreOf<WalletBirthday>) {
         self.store = store
     }
@@ -20,25 +23,45 @@ public struct WalletBirthdayEstimateDateView: View {
     public var body: some View {
         WithPerceptionTracking {
             VStack(alignment: .leading, spacing: 0) {
+                if store.isKeystoneFlow {
+                    Asset.Assets.Partners.keystoneTitleLogo.image
+                        .resizable()
+                        .frame(width: 193, height: 32)
+                        .padding(.top, 16)
+                }
+
                 Text(localizable: .restoreWalletBirthdayEstimateDateTitle)
                     .zFont(.semiBold, size: 24, style: Design.Text.primary)
                     .padding(.top, 40)
                     .padding(.bottom, 8)
 
-                Text(localizable: .restoreWalletBirthdayEstimateDateInfo)
-                    .zFont(size: 14, style: Design.Text.primary)
-                    .padding(.bottom, 32)
+                // TODO: Loc
+//                Text(localizable: .restoreWalletBirthdayEstimateDateInfo)
+                Text(
+                    store.isKeystoneFlow
+                    ? "L10n.Keystone.Birthday.EstimateDate.info"
+                    : "L10n.RestoreWallet.Birthday.EstimateDate.info"
+                )
+                .zFont(size: 14, style: Design.Text.primary)
+                .padding(.bottom, 32)
 
                 HStack {
-                    Picker("", selection: $store.selectedMonth) {
+                    Picker("", selection: $selectedMonth) {
                         ForEach(store.months, id: \.self) { month in
                             Text(month)
                                 .zFont(size: 23, style: Design.Text.primary)
                         }
                     }
                     .pickerStyle(.wheel)
+                    .onChange(of: selectedYear) { _ in
+                        store.send(.binding(.set(\.selectedYear, selectedYear)))
+                        // sync month in case it went out of range
+                        if !store.months.contains(selectedMonth) {
+                            selectedMonth = store.months.last ?? selectedMonth
+                        }
+                    }
 
-                    Picker("", selection: $store.selectedYear) {
+                    Picker("", selection: $selectedYear) {
                         ForEach(store.years, id: \.self) { year in
                             Text("\(String(year))")
                                 .zFont(size: 23, style: Design.Text.primary)
@@ -48,25 +71,61 @@ public struct WalletBirthdayEstimateDateView: View {
                 }
                 
                 Spacer()
-                
-                HStack(spacing: 0) {
-                    Asset.Assets.infoOutline.image
-                        .zImage(size: 20, style: Design.Utility.Indigo._500)
-                        .padding(.trailing, 12)
 
-                    Text(localizable: .restoreWalletDateTip)
-                        .zFont(.medium, size: 12, style: Design.Utility.Indigo._700)
+                if !store.isKeystoneFlow {
+                    HStack(spacing: 0) {
+                        Asset.Assets.infoOutline.image
+                            .zImage(size: 20, style: Design.Utility.Indigo._500)
+                            .padding(.trailing, 12)
+                        
+                        Text(localizable: .restoreWalletDateTip)
+                            .zFont(.medium, size: 12, style: Design.Utility.Indigo._700)
+                    }
+                    .padding(.bottom, 20)
+                    .screenHorizontalPadding()
                 }
-                .padding(.bottom, 20)
-                .screenHorizontalPadding()
-                
+
+                if store.isKeystoneFlow {
+                    // TODO: Loc
+                    ZashiButton(
+                        "L10n.Keystone.AddHWWallet.enterManually",
+                        type: .ghost
+                    ) {
+                        store.send(.enterManuallyTapped)
+                    }
+                    .padding(.bottom, 12)
+                }
+
                 ZashiButton(String(localizable: .generalNext)) {
+                    store.send(.binding(.set(\.selectedMonth, selectedMonth)))
+                    store.send(.binding(.set(\.selectedYear, selectedYear)))
                     store.send(.estimateHeightRequested)
                 }
                 .padding(.bottom, 24)
             }
-            .onAppear { store.send(.onAppear) }
+            .onAppear {
+                store.send(.onAppear)
+                selectedMonth = store.selectedMonth
+                selectedYear = store.selectedYear
+            }
+            .onChange(of: store.selectedMonth) { newMonth in
+                selectedMonth = newMonth
+            }
             .zashiBack()
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarItems(
+                trailing:
+                    Button {
+                        store.send(.helpSheetRequested)
+                    } label: {
+                        Asset.Assets.Icons.help.image
+                            .zImage(size: 24, style: Design.Text.primary)
+                            .padding(Design.Spacing.navBarButtonPadding)
+                    }
+            )
+            .screenHorizontalPadding()
+            .applyScreenBackground()
+            .screenTitle(store.isKeystoneFlow ? "" : String(localizable: .importWalletButtonRestoreWallet))
         }
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarItems(
@@ -81,7 +140,9 @@ public struct WalletBirthdayEstimateDateView: View {
         )
         .screenHorizontalPadding()
         .applyScreenBackground()
-        .screenTitle(String(localizable: .importWalletButtonRestoreWallet))
+        // TODO: Loc
+//        .screenTitle(String(localizable: .importWalletButtonRestoreWallet))
+        .screenTitle(store.isKeystoneFlow ? "" : "L10n.ImportWallet.Button.restoreWallet")
     }
 }
 

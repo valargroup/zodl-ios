@@ -23,15 +23,29 @@ public struct WalletBirthdayView: View {
     public var body: some View {
         WithPerceptionTracking {
             VStack(alignment: .leading, spacing: 0) {
+                if store.isKeystoneFlow {
+                    Asset.Assets.Partners.keystoneTitleLogo.image
+                        .resizable()
+                        .frame(width: 193, height: 32)
+                        .padding(.top, 16)
+                }
+                
                 Text(localizable: .importWalletBirthdayTitle)
                     .zFont(.semiBold, size: 24, style: Design.Text.primary)
                     .padding(.top, 40)
                     .padding(.bottom, 8)
 
-                Text(localizable: .restoreWalletBirthdayInfo)
-                    .zFont(size: 14, style: Design.Text.primary)
-                    .padding(.bottom, 32)
-
+                // TODO: loc
+                Text(
+                    localizable:
+                        store.isKeystoneFlow
+//                    ? .addHWWalletBirthdayInfo
+                    ? .restoreWalletBirthdayInfo
+                    : .restoreWalletBirthdayInfo
+                )
+                .zFont(size: 14, style: Design.Text.primary)
+                .padding(.bottom, 32)
+                
                 ZashiTextField(
                     text: $store.birthday,
                     placeholder: String(localizable: .restoreWalletBirthdayPlaceholder),
@@ -45,25 +59,30 @@ public struct WalletBirthdayView: View {
                 
                 Text(localizable: .restoreWalletBirthdayFieldInfo)
                     .zFont(size: 12, style: Design.Text.tertiary)
-
+                
                 Spacer()
                 
-                ZashiButton(
-                    String(localizable: .restoreWalletBirthdayEstimate),
-                    type: .ghost
-                ) {
-                    store.send(.estimateHeightTapped)
+                if !store.isKeystoneFlow {
+                    ZashiButton(
+                        String(localizable: .restoreWalletBirthdayEstimate),
+                        type: .ghost
+                    ) {
+                        store.send(.estimateHeightTapped)
+                    }
+                    .padding(.bottom, 12)
                 }
-                .padding(.bottom, 12)
-
-                ZashiButton(String(localizable: .importWalletButtonRestoreWallet)) {
-                    store.send(.restoreTapped)
+                    // TODO: Loc
+//                    ZashiButton(String(localizable: .importWalletButtonRestoreWallet)) {
+                ZashiButton(store.isKeystoneFlow ? "L10n.Keystone.AddHWWallet.connect" : "L10n.ImportWallet.Button.restoreWallet") {
+//                ZashiButton(store.isKeystoneFlow ? String(localizable: .keystoneAddHWWalletConnect) : String(localizable: .importWalletButtonRestoreWallet)) {
+                  store.send(.restoreTapped)
                 }
                 .disabled(!store.isValidBirthday)
-                .padding(.bottom, 24)
+                .padding(.bottom, keyboardVisible ? 48 : 24)
             }
             .zashiBack()
         }
+        .onAppear { isBirthdayFocused = true }
         .navigationBarTitleDisplayMode(.inline)
         .trackKeyboardVisibility($keyboardVisible)
         .navigationBarItems(
@@ -78,7 +97,10 @@ public struct WalletBirthdayView: View {
         )
         .screenHorizontalPadding()
         .applyScreenBackground()
-        .screenTitle(String(localizable: .importWalletButtonRestoreWallet))
+        // TODO: Loc
+//        .screenTitle(String(localizable: .importWalletButtonRestoreWallet))
+        .screenTitle(store.isKeystoneFlow ? "L10n.Keystone.connect" : "L10n.ImportWallet.Button.restoreWallet")
+//        .screenTitle(store.isKeystoneFlow ? "" : String(localizable: .importWalletButtonRestoreWallet))
         .overlay {
             if keyboardVisible {
                 VStack(spacing: 0) {
@@ -95,15 +117,15 @@ public struct WalletBirthdayView: View {
                             isBirthdayFocused = false
                         } label: {
                             Text(localizable: .generalDone)
+//                            Text(String(localizable: .generalDone).uppercased())
                                 .zFont(.regular, size: 14, style: Design.Text.primary)
                         }
-                        .padding(.bottom, 4)
+                        .applyScreenBackground()
+                        .padding(.horizontal, 20)
+                        .frame(height: keyboardVisible ? 38 : 0)
+                        .frame(maxWidth: .infinity)
+                        .opacity(keyboardVisible ? 1 : 0)
                     }
-                    .applyScreenBackground()
-                    .padding(.horizontal, 20)
-                    .frame(height: keyboardVisible ? 38 : 0)
-                    .frame(maxWidth: .infinity)
-                    .opacity(keyboardVisible ? 1 : 0)
                 }
             }
         }
