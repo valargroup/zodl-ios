@@ -22,6 +22,7 @@ import Scan
 import ServerSetup
 import SendFeedback
 import WhatsNew
+import PIRSetup
 import TorSetup
 
 @Reducer
@@ -38,6 +39,7 @@ public struct Settings {
         case currencyConversionSetup(CurrencyConversionSetup)
         case exportPrivateData(PrivateDataConsent)
         case exportTransactionHistory(ExportTransactionHistory)
+        case pirSetup(PIRSetup)
         case recoveryPhrase(RecoveryPhraseDisplay)
         case resetZashi(DeleteWallet)
         case scan(Scan)
@@ -51,7 +53,6 @@ public struct Settings {
         public var addressToRecoverFunds = ""
         public var appVersion = ""
         public var appBuild = ""
-        @Shared(.inMemory(.featureFlags)) public var featureFlags: FeatureFlags = .initial
         public var isEnoughFreeSpaceMode = true
         public var isInEnhanceTransactionMode = false
         public var isInRecoverFundsMode = false

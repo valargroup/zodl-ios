@@ -30,6 +30,7 @@ public struct WalletStorage {
         public static let zcashStoredWalletBackupAcknowledged = "zcashStoredWalletBackupAcknowledged"
         public static let zcashStoredShieldingAcknowledged = "zcashStoredShieldingAcknowledged"
         public static let zcashStoredTorSetupFlag = "zcashStoredTorSetupFlag"
+        public static let zcashStoredPIRFlag = "zcashStoredPIRFlag"
         public static let zcashStoredZodlAnnouncementFlag = "zcashStoredZodlAnnouncementFlag"
 
         /// Versioning of the stored data
@@ -183,6 +184,7 @@ public struct WalletStorage {
         try? deleteData(forKey: Constants.zcashStoredWalletBackupAcknowledged)
         try? deleteData(forKey: Constants.zcashStoredShieldingAcknowledged)
         try? deleteData(forKey: Constants.zcashStoredTorSetupFlag)
+        try? deleteData(forKey: Constants.zcashStoredPIRFlag)
         try? deleteData(forKey: Constants.zcashStoredZodlAnnouncementFlag)
     }
     
@@ -410,6 +412,36 @@ public struct WalletStorage {
         
         do {
             reqData = try data(forKey: Constants.zcashStoredTorSetupFlag)
+        } catch {
+            return nil
+        }
+        
+        guard let reqData else {
+            return nil
+        }
+        
+        return try? decode(json: reqData, as: Bool.self)
+    }
+
+    public func importPIRFlag(_ enabled: Bool) throws {
+        guard let data = try? encode(object: enabled) else {
+            throw KeychainError.encoding
+        }
+
+        do {
+            try setData(data, forKey: Constants.zcashStoredPIRFlag)
+        } catch KeychainError.duplicate {
+            try updateData(data, forKey: Constants.zcashStoredPIRFlag)
+        } catch {
+            throw WalletStorageError.storageError(error)
+        }
+    }
+    
+    public func exportPIRFlag() -> Bool? {
+        let reqData: Data?
+        
+        do {
+            reqData = try data(forKey: Constants.zcashStoredPIRFlag)
         } catch {
             return nil
         }

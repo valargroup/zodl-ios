@@ -143,7 +143,8 @@ private extension RootView {
                                     store:
                                         store.scope(
                                             state: \.settingsState,
-                                            action: \.settings)
+                                            action: \.settings),
+                                    walletConfig: store.walletConfig
                                 )
                                 .transition(.move(edge: .trailing))
                                 .zIndex(1)

@@ -11,6 +11,7 @@ import ZcashLightClientKit
 import Deeplink
 import DerivationTool
 import Generated
+import Models
 
 import SwiftUI
 
@@ -118,7 +119,9 @@ extension Root {
                         let network = zcashSDKEnvironment.network.networkType
                         let spendingKey = try derivationTool.deriveSpendingKey(seedBytes, zip32AccountIndex, network)
                         
-                        let result = try await sdkSynchronizer.createProposedTransactions(proposal, spendingKey)
+                        var pirProposal = proposal
+                        pirProposal.pirWitnessConfig = Proposal.PIRWitnessConfig(serverURL: SpendabilityPIRConfig.default.witnessServerUrl)
+                        let result = try await sdkSynchronizer.createProposedTransactions(pirProposal, spendingKey)
                         
                         switch result {
                         case .partial:

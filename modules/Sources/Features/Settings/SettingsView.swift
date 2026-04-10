@@ -16,15 +16,19 @@ import Scan
 import ServerSetup
 import SendFeedback
 import WhatsNew
+import PIRSetup
 import TorSetup
+import Models
 
 public struct SettingsView: View {
     @Environment(\.colorScheme) var colorScheme
     
     @Perception.Bindable var store: StoreOf<Settings>
-    
-    public init(store: StoreOf<Settings>) {
+    private let walletConfig: WalletConfig
+
+    public init(store: StoreOf<Settings>, walletConfig: WalletConfig = .initial) {
         self.store = store
+        self.walletConfig = walletConfig
     }
     
     public var body: some View {
@@ -134,6 +138,8 @@ public struct SettingsView: View {
                     PrivateDataConsentView(store: store)
                 case let .exportTransactionHistory(store):
                     ExportTransactionHistoryView(store: store)
+                case let .pirSetup(store):
+                    PIRSetupView(store: store)
                 case let .recoveryPhrase(store):
                     RecoveryPhraseDisplayView(store: store)
                 case let .resetZashi(store):

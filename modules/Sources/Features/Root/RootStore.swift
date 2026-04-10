@@ -76,6 +76,8 @@ public struct Root {
         public var DidFinishLaunchingId = UUID()
         public var CancelFlexaId = UUID()
         public var shieldingProcessorCancelId = UUID()
+        public var PIRCheckCancelId = UUID()
+        public var WitnessPIRCheckCancelId = UUID()
 
         @Shared(.inMemory(.addressBookContacts)) public var addressBookContacts: AddressBookContacts = .empty
         @Presents public var alert: AlertState<Action>?
@@ -106,6 +108,7 @@ public struct Root {
         @Shared(.inMemory(.selectedWalletAccount)) public var selectedWalletAccount: WalletAccount? = nil
         public var serverSetupState: ServerSetup.State
         public var serverSetupViewBinding = false
+
         public var signWithKeystoneCoordFlowBinding = false
         public var splashAppeared = false
         public var supportData: SupportData?
@@ -116,9 +119,17 @@ public struct Root {
         @Shared(.inMemory(.walletAccounts)) public var walletAccounts: [WalletAccount] = []
         public var walletConfig: WalletConfig
         @Shared(.inMemory(.walletStatus)) public var walletStatus: WalletStatus = .none
+        @Shared(.inMemory(.pirUserEnabled)) public var pirUserEnabled: Bool = true
+        @Shared(.inMemory(.pirSpendabilityResult)) public var pirSpendabilityResult: SpendabilityResult? = nil
+        @Shared(.inMemory(.pirWitnessResult)) public var pirWitnessResult: WitnessResult? = nil
         public var wasRestoringWhenDisconnected = false
         public var welcomeState: Welcome.State
         @Shared(.inMemory(.zashiWalletAccount)) public var zashiWalletAccount: WalletAccount? = nil
+
+        /// PIR is disabled when the user toggle is off or the active account is a hardware wallet.
+        public var isPIRAllowed: Bool {
+            pirUserEnabled && selectedWalletAccount?.vendor.isHWWallet() != true
+        }
 
         // Auto-update swaps
         public var autoUpdateCandidate: TransactionState? = nil
@@ -238,6 +249,7 @@ public struct Root {
         case fetchTransactionsForTheSelectedAccount
         case fetchedTransactions(IdentifiedArrayOf<TransactionState>)
         case noChangeInTransactions
+        case syncReachedUpToDate
         
         // Address Book
         case loadContacts
