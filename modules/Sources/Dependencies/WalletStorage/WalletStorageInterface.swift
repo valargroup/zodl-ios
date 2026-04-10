@@ -104,4 +104,8 @@ public struct WalletStorageClient {
     /// Tor setup flag
     public var importTorSetupFlag: (Bool) throws -> Void
     public var exportTorSetupFlag: () -> Bool? = { nil }
+    
+    /// PIR (Private Information Retrieval) flag — user toggle in Advanced Settings
+    public var importPIRFlag: (Bool) throws -> Void
+    public var exportPIRFlag: () -> Bool? = { nil }
 }

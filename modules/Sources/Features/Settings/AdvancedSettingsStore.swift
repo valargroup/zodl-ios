@@ -14,6 +14,7 @@ public struct AdvancedSettings {
             case chooseServer
             case exportPrivateData
             case exportTaxFile
+            case pirSetup
             case recoveryPhrase
             case resetZashi
             case torSetup
@@ -26,6 +27,7 @@ public struct AdvancedSettings {
     }
 
     public enum Action: Equatable {
+        case onAppear
         case operationAccessCheck(State.Operation)
         case operationAccessGranted(State.Operation)
     }
@@ -37,9 +39,12 @@ public struct AdvancedSettings {
     public var body: some Reducer<State, Action> {
         Reduce { state, action in
             switch action {
+            case .onAppear:
+                return .none
+
             case .operationAccessCheck(let operation):
                 switch operation {
-                case .chooseServer, .torSetup:
+                case .chooseServer, .torSetup, .pirSetup:
                     return .send(.operationAccessGranted(operation))
                 case .recoveryPhrase, .exportPrivateData, .exportTaxFile, .resetZashi:
                     return .run { send in

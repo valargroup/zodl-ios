@@ -86,6 +86,12 @@ extension WalletStorageClient: DependencyKey {
             },
             exportTorSetupFlag: {
                 walletStorage.exportTorSetupFlag()
+            },
+            importPIRFlag: { enabled in
+                try walletStorage.importPIRFlag(enabled)
+            },
+            exportPIRFlag: {
+                walletStorage.exportPIRFlag()
             }
         )
     }

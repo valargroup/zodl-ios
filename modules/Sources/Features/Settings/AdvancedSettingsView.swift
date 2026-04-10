@@ -9,6 +9,7 @@ import SwiftUI
 import ComposableArchitecture
 
 import Generated
+import Models
 import UIComponents
 
 public struct AdvancedSettingsView: View {
@@ -59,10 +60,16 @@ public struct AdvancedSettingsView: View {
 
                         ActionRow(
                             icon: Asset.Assets.Icons.shieldZap.image,
-                            title: String(localizable: .settingsPrivate),
-                            divider: false
+                            title: String(localizable: .settingsPrivate)
                         ) {
                             store.send(.operationAccessCheck(.torSetup))
+                        }
+
+                        ActionRow(
+                            icon: Asset.Assets.Icons.flashOn.image,
+                            title: "Instant Spendability"
+                        ) {
+                            store.send(.operationAccessCheck(.pirSetup))
                         }
                     }
                     .listRowInsets(EdgeInsets())
@@ -71,6 +78,7 @@ public struct AdvancedSettingsView: View {
                 }
                 .padding(.top, 24)
                 .padding(.horizontal, 4)
+                .onAppear { store.send(.onAppear) }
 
                 Spacer()
 

@@ -37,7 +37,7 @@ extension Root {
                             .throttle(for: .seconds(0.2), scheduler: mainQueue, latest: true)
                             .map {
                                 if $0.syncStatus == .upToDate {
-                                    return Root.Action.fetchTransactionsForTheSelectedAccount
+                                    return Root.Action.syncReachedUpToDate
                                 }
                                 return Root.Action.noChangeInTransactions
                             }
@@ -49,7 +49,7 @@ extension Root {
             case .noChangeInTransactions:
                 return .none
                 
-            case .foundTransactions:
+            case .foundTransactions, .syncReachedUpToDate:
                 return .send(.fetchTransactionsForTheSelectedAccount)
                 
             case .minedTransaction:

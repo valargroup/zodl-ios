@@ -29,6 +29,10 @@ extension Root {
         case checkRestoreWalletFlag(SyncStatus)
         case checkWalletInitialization
         case checkWalletConfig
+        case checkSpendabilityPIR
+        case checkSpendabilityPIRResult(SpendabilityResult?)
+        case checkWitnessPIR
+        case checkWitnessPIRResult(WitnessResult?)
         case initializeSDK(WalletInitMode)
         case initialSetups
         case initializationFailed(ZcashError)
@@ -206,11 +210,64 @@ extension Root {
                 if state.bgTask != nil {
                     return stateStreamEffect
                 } else {
-                    return .merge(
+                    var effects: [Effect<Root.Action>] = [
                         stateStreamEffect,
                         .send(.home(.smartBanner(.evaluatePriority1)))
-                    )
+                    ]
+                    if state.isPIRAllowed && state.walletConfig.isEnabled(.pirSpendability) {
+                        effects.append(.send(.initialization(.checkSpendabilityPIR)))
+                    }
+                    return .merge(effects)
                 }
+
+            case .initialization(.checkSpendabilityPIR):
+                guard state.isPIRAllowed && state.walletConfig.isEnabled(.pirSpendability) else {
+                    return .none
+                }
+                let pirUrl = SpendabilityPIRConfig.default.serverUrl
+                return .run { send in
+                    do {
+                        let result = try await sdkSynchronizer.checkWalletSpendability(pirUrl, nil)
+                        await send(.initialization(.checkSpendabilityPIRResult(result)))
+                    } catch {
+                        await send(.initialization(.checkSpendabilityPIRResult(nil)))
+                    }
+                }
+                .cancellable(id: state.PIRCheckCancelId, cancelInFlight: true)
+
+            case .initialization(.checkSpendabilityPIRResult(let result)):
+                state.$pirSpendabilityResult.withLock { $0 = result }
+                var effects: [Effect<Root.Action>] = [
+                    .send(.fetchTransactionsForTheSelectedAccount),
+                    .send(.home(.walletBalances(.updateBalances)))
+                ]
+                let anySpent = result?.anySpent ?? false
+                if !anySpent {
+                    effects.append(.send(.initialization(.checkWitnessPIR)))
+                }
+                return .merge(effects)
+
+            case .initialization(.checkWitnessPIR):
+                guard state.isPIRAllowed && state.walletConfig.isEnabled(.pirSpendability) else {
+                    return .none
+                }
+                let witnessUrl = SpendabilityPIRConfig.default.witnessServerUrl
+                return .run { send in
+                    do {
+                        let result = try await sdkSynchronizer.fetchNoteWitnesses(witnessUrl, nil)
+                        await send(.initialization(.checkWitnessPIRResult(result)))
+                    } catch {
+                        await send(.initialization(.checkWitnessPIRResult(nil)))
+                    }
+                }
+                .cancellable(id: state.WitnessPIRCheckCancelId, cancelInFlight: true)
+
+            case .initialization(.checkWitnessPIRResult(let result)):
+                state.$pirWitnessResult.withLock { $0 = result }
+                return .merge(
+                    .send(.fetchTransactionsForTheSelectedAccount),
+                    .send(.home(.walletBalances(.updateBalances)))
+                )
 
             case .initialization(.checkWalletConfig):
                 return .publisher {
@@ -234,6 +291,9 @@ extension Root {
                 )
                 
             case .initialization(.initialSetups):
+                if let pirFlag = walletStorage.exportPIRFlag() {
+                    state.$pirUserEnabled.withLock { $0 = pirFlag }
+                }
                 if !diskSpaceChecker.hasEnoughFreeSpaceForSync() {
                     state.destinationState.preNotEnoughFreeSpaceDestination = state.destinationState.internalDestination
                     return .send(.destination(.updateDestination(.notEnoughFreeSpace)))
@@ -334,7 +394,12 @@ extension Root {
                             await send(.resolveMetadataEncryptionKeys)
                             await send(.loadUserMetadata)
 
-                            try await sdkSynchronizer.start(false)
+                            do {
+                                try await sdkSynchronizer.start(false)
+                            } catch {
+                                LoggerProxy.event("Synchronizer start failed (non-fatal): \(error)")
+                                await send(.initialization(.synchronizerStartFailed(error.toZcashError())))
+                            }
 
                             var selectedAccount: WalletAccount?
                             

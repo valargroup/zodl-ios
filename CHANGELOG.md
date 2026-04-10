@@ -6,6 +6,11 @@ directly impact users rather than highlighting other crucial architectural updat
 
 ## [Unreleased]
 
+### Added
+- Instant Spendability: PIR-based spend detection and witness fetching notify users of pending spends before sync completes.
+- PIR setup screen in Advanced Settings with user toggle to enable/disable the feature.
+- Pending-spend spinner in transaction rows for outgoing transactions still confirming.
+
 ## 3.2.0 build 5 (2026-03-09)
 
 ### Changed

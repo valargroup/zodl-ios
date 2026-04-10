@@ -326,6 +326,18 @@ extension SDKSynchronizerClient: DependencyKey {
             },
             enhanceTransactionBy: { txId in
                 try await synchronizer.enhanceTransactionBy(txId: TxId(txId))
+            },
+            checkWalletSpendability: { pirServerUrl, progress in
+                try await synchronizer.checkWalletSpendability(
+                    pirServerUrl: pirServerUrl,
+                    progress: progress
+                )
+            },
+            fetchNoteWitnesses: { pirServerUrl, progress in
+                try await synchronizer.fetchNoteWitnesses(
+                    pirServerUrl: pirServerUrl,
+                    progress: progress
+                )
             }
         )
     }

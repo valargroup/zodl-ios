@@ -52,7 +52,7 @@ public struct TransactionState: Equatable, Identifiable {
     public var totalReceived: Zatoshi?
 
     public var rawID: Data? = nil
-    
+
     // Swaps
     public var swapToZecAmount: String? = nil
     public var swapStatus = UMSwapId.SwapStatus.pending

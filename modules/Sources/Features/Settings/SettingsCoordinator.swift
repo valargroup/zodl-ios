@@ -20,6 +20,7 @@ import Scan
 import ServerSetup
 import SendFeedback
 import WhatsNew
+import PIRSetup
 import TorSetup
 
 extension Settings {
@@ -89,6 +90,10 @@ extension Settings {
                     state.path.append(.exportTransactionHistory(ExportTransactionHistory.State.initial))
                 case .chooseServer:
                     state.path.append(.chooseServerSetup(ServerSetup.State.initial))
+                case .pirSetup:
+                    var pirSetupState = PIRSetup.State.initial
+                    pirSetupState.isSettingsView = true
+                    state.path.append(.pirSetup(pirSetupState))
                 case .torSetup:
                     var torSetupState = TorSetup.State.initial
                     torSetupState.isSettingsView = true
@@ -188,6 +193,12 @@ extension Settings {
                 return .none
 
                 
+                // MARK: - PIR Setup
+
+            case .path(.element(id: _, action: .pirSetup(.backToHomeTapped))):
+                let _ = state.path.popLast()
+                return .none
+
                 // MARK: - Tor Setup
 
             case .path(.element(id: _, action: .torSetup(.backToHomeTapped))):

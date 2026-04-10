@@ -89,6 +89,7 @@ public struct TransactionRowView: View {
                         Text(transaction.daysAgo)
                             .font(.custom(FontFamily.Inter.regular.name, size: 13))
                             .foregroundColor(Asset.Colors.shade47.color)
+
                     }
 
                     Spacer()
@@ -106,7 +107,7 @@ public struct TransactionRowView: View {
     }
 
     @ViewBuilder private func balanceView() -> some View {
-        Group {
+        HStack(spacing: 0) {
             if isSensitiveContentHidden {
                 Text(localizable: .generalHideBalancesMost)
                     .foregroundColor(Design.Text.primary.color(colorScheme))
@@ -116,8 +117,19 @@ public struct TransactionRowView: View {
                     + Text(" \(tokenName)")
                 }
             } else {
-                Text(transaction.isSpending ? "- " : "")
-                + Text(transaction.netValue)
+                if transaction.isSpending {
+                    if transaction.isPending {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .frame(width: 14, height: 14)
+                            .padding(.trailing, 6)
+                    } else {
+                        Text("- ")
+                    }
+                }
+                Text(transaction.isSpending
+                     ? transaction.netValue.replacingOccurrences(of: "-", with: "")
+                     : transaction.netValue)
                 + Text(" \(tokenName)")
             }
         }
