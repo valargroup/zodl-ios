@@ -32,6 +32,7 @@ public struct VotingView: View {
     // swiftlint:disable:next cyclomatic_complexity
     private func screenId(_ screen: Voting.State.Screen) -> String {
         switch screen {
+        case .howToVote: return "howToVote"
         case .loading: return "loading"
         case .noRounds: return "noRounds"
         case .roundsList: return "roundsList"  // Dead — kept for exhaustive switch
@@ -52,6 +53,8 @@ public struct VotingView: View {
         for screen: Voting.State.Screen
     ) -> some View {
         switch screen {
+        case .howToVote:
+            HowToVoteView(store: store)
         case .loading:
             ProgressView()
         case .noRounds:

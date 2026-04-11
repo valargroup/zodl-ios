@@ -121,6 +121,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
     @ObservableState
     public struct State: Equatable {
         public enum Screen: Equatable {
+            case howToVote
             case loading
             case noRounds
             case roundsList
@@ -205,7 +206,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
             public static let totalSteps = 4
         }
 
-        public var screenStack: [Screen] = [.loading]
+        public var screenStack: [Screen] = [.howToVote]
         public var votingRound: VotingRound
         public var votes: [UInt32: VoteChoice] = [:]
         public var votingWeight: UInt64
@@ -541,6 +542,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
         case dismissFlow
         case goBack
         case backToRoundsList
+        case howToVoteContinueTapped
 
         // Rounds list
         case allRoundsLoaded([VotingSession])
@@ -671,6 +673,10 @@ public struct Voting { // swiftlint:disable:this type_body_length
                     state.screenStack.removeLast()
                 }
                 return .none
+
+            case .howToVoteContinueTapped:
+                state.screenStack = [.loading]
+                return .send(.initialize)
 
             case .backToRoundsList:
                 // Cancel per-round effects and re-fetch rounds (auto-navigates via allRoundsLoaded)
