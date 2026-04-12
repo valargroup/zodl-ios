@@ -886,8 +886,18 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 let roundId = session.voteRoundId.hexString
                 let accountUUID: [UInt8] = state.selectedWalletAccount?.id.id ?? []
                 return .run { [votingCrypto, mnemonic, walletStorage, sdkSynchronizer] send in
-                    // Check wallet sync progress before querying notes
-                    let walletScannedHeight = UInt64(sdkSynchronizer.latestState().latestBlockHeight)
+                    // Check wallet sync progress before querying notes.
+                    // The SDK synchronizer may report height 0 briefly on a
+                    // fresh app launch before it hydrates its persisted state.
+                    // Retry a few times to avoid a false "not synced" screen.
+                    var walletScannedHeight = UInt64(sdkSynchronizer.latestState().latestBlockHeight)
+                    if walletScannedHeight == 0 {
+                        for _ in 0..<5 {
+                            try await Task.sleep(for: .seconds(1))
+                            walletScannedHeight = UInt64(sdkSynchronizer.latestState().latestBlockHeight)
+                            if walletScannedHeight > 0 { break }
+                        }
+                    }
                     if walletScannedHeight < snapshotHeight {
                         logger.info("Wallet scanned to \(walletScannedHeight), snapshot at \(snapshotHeight) — not synced yet")
                         await send(.walletNotSynced(scannedHeight: walletScannedHeight, snapshotHeight: snapshotHeight))
