@@ -2158,7 +2158,14 @@ public struct Voting { // swiftlint:disable:this type_body_length
             // MARK: - Proposal Detail
 
             case let .castVote(proposalId, choice):
-                return .send(.setDraftVote(proposalId: proposalId, choice: choice))
+                guard state.votes[proposalId] == nil else { return .none }
+                if state.draftVotes[proposalId] == choice {
+                    state.draftVotes.removeValue(forKey: proposalId)
+                } else {
+                    state.draftVotes[proposalId] = choice
+                }
+                Self.persistDrafts(state.draftVotes, roundId: state.roundId)
+                return .none
 
             case .voteSubmissionBundleStarted(let index):
                 state.currentVoteBundleIndex = index
