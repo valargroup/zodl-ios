@@ -8,54 +8,40 @@ import VotingModels
 struct ProposalListView: View {
     @Environment(\.colorScheme)
     var colorScheme
-    @State private var showSnapshotHeight = false
     @State private var now = Date()
+    @State private var descriptionExpanded = false
+    @State private var showUnansweredSheet = false
 
     let store: StoreOf<Voting>
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    private var timeRemainingText: String {
-        let end = store.votingRound.votingEnd
-        let remaining = end.timeIntervalSince(now)
-        guard remaining > 0 else { return "Ended" }
-
-        let days = Int(remaining) / 86400
-        let hours = (Int(remaining) % 86400) / 3600
-        let minutes = (Int(remaining) % 3600) / 60
-        let seconds = Int(remaining) % 60
-
-        if days > 0 {
-            return "\(days)d \(hours)h \(minutes)m"
-        } else if hours > 0 {
-            return "\(hours)h \(minutes)m \(seconds)s"
-        } else {
-            return "\(minutes)m \(seconds)s"
-        }
-    }
-
     var body: some View {
         WithPerceptionTracking {
             VStack(spacing: 0) {
-                proposalScrollView()
+                if store.activeSession == nil {
+                    noActiveRoundCard()
+                        .padding(.horizontal, 24)
+                        .padding(.top, 8)
+                        .padding(.bottom, 24)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                } else {
+                    proposalScrollView()
+                }
             }
-            .navigationTitle("Governance")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        store.send(.dismissFlow)
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                }
-                if store.activeSession != nil {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Text(timeRemainingText)
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(store.votingRound.votingEnd > now ? .green : .secondary)
-                    }
-                }
+            .applyScreenBackground()
+            .screenTitle("Coinholder Polling")
+            .zashiBack { store.send(.backToList) }
+            .overlay(alignment: .bottom) {
+                bottomCTA()
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+            }
+            .sheet(isPresented: $showUnansweredSheet) {
+                unansweredConfirmationSheet()
+                    .presentationDetents([.height(380)])
+                    .presentationDragIndicator(.hidden)
             }
             .onReceive(timer) { self.now = $0 }
             .onAppear { store.send(.governanceTabAppeared) }
@@ -87,23 +73,27 @@ struct ProposalListView: View {
     private func proposalScrollView() -> some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: 12) {
-                    if store.activeSession == nil {
-                        noActiveRoundCard()
-                    } else {
-                        roundInfoCard()
-                        progressHeader()
+                VStack(alignment: .leading, spacing: 24) {
+                    overviewHeader()
 
+                    VStack(spacing: 16) {
                         ForEach(store.votingRound.proposals) { proposal in
                             proposalCard(proposal)
                                 .id(proposal.id)
                         }
-
-                        batchFooter()
                     }
                 }
                 .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                // Pushes the title down from the COINHOLDER POLLING navbar to
+                // match the design's breathing room. The padding lives at the
+                // ScrollView content level (rather than on the title row's
+                // top) because SwiftUI tends to absorb padding on the first
+                // child of a VStack-inside-ScrollView via safe-area insets.
+                .padding(.top, 24)
+                // Bottom inset large enough to scroll the last proposal card
+                // out from under the floating CTA. Approx button height (~50)
+                // + outer padding (~16) + breathing room.
+                .padding(.bottom, 96)
             }
             .onAppear {
                 if let id = store.activeProposalId {
@@ -120,70 +110,180 @@ struct ProposalListView: View {
         }
     }
 
-    // MARK: - Round Info Header
+    // MARK: - Overview Header
 
     @ViewBuilder
-    private func roundInfoCard() -> some View {
-        VStack(spacing: 10) {
-            Text(store.votingRound.title)
-                .zFont(.semiBold, size: 15, style: Design.Text.primary)
+    private func overviewHeader() -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Title row: round title (left) + #snapshotHeight (right).
+            // Negative top padding nudges the title up to absorb Inter's
+            // natural line-leading at 20pt and tighten the gap from the
+            // COINHOLDER POLLING navbar title.
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(store.votingRound.title)
+                    .zFont(.semiBold, size: 20, style: Design.Text.primary)
+                    .tracking(-0.32) // -1.6% × 20pt
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let session = store.activeSession {
+                    Text("#\(formattedSnapshotHeight(session.snapshotHeight))")
+                        .zFont(.medium, size: 20, style: Design.Text.primary)
+                        .tracking(-0.32)
+                        .fixedSize()
+                }
+            }
+
+            voteProgressBar()
+
+            // Meta line: Ends X · Voting Power Y · N days left
+            // Single line — scale down slightly if all three pieces don't quite
+            // fit (e.g. when "Voting Power 0.750 ZEC" + a long date pushes the
+            // line just past the available width).
+            Text(metaLine)
+                .zFont(.medium, size: 12, style: Design.Text.tertiary)
+                .tracking(-0.072) // -0.6% × 12pt
                 .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .minimumScaleFactor(0.85)
+                .truncationMode(.tail)
 
-            HStack(spacing: 0) {
-                detailPill(
-                    label: "Snapshot",
-                    value: store.votingRound.snapshotDate.formatted(date: .abbreviated, time: .omitted)
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .onTapGesture {
-                    showSnapshotHeight = true
+            // Description with View more toggle. Collapsed to one line by
+            // default; tapping "View more" expands to the full description.
+            if !store.votingRound.description.isEmpty {
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(store.votingRound.description)
+                        .zFont(size: 14, style: Design.Text.primary)
+                        .lineLimit(descriptionExpanded ? nil : 1)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    viewMoreButton()
                 }
-                .popover(isPresented: $showSnapshotHeight) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Block #\(store.votingRound.snapshotHeight.formatted())")
-                        Text(store.votingRound.snapshotDate.formatted(date: .abbreviated, time: .standard))
-                    }
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .padding(12)
-                    .compactPopover()
-                }
-
-                detailPill(
-                    label: "Ends",
-                    value: store.votingRound.votingEnd.formatted(date: .abbreviated, time: .omitted)
-                )
-                .frame(maxWidth: .infinity)
-
-                detailPill(
-                    label: "Eligible",
-                    value: "\(store.votingWeightZECString) ZEC"
-                )
-                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 16)
-        .background(Design.Surfaces.bgPrimary.color(colorScheme))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
-        )
-        .padding(.top, 8)
     }
 
     @ViewBuilder
-    private func detailPill(label: String, value: String) -> some View {
-        VStack(spacing: 2) {
-            Text(label)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Design.Text.primary.color(colorScheme))
+    private func viewMoreButton() -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                descriptionExpanded.toggle()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(descriptionExpanded ? "View less" : "View more")
+                    .zFont(.medium, size: 14, style: Design.Text.tertiary)
+                    .tracking(-0.224)
+                Image(systemName: descriptionExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Design.Text.tertiary.color(colorScheme))
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 20)
+            .background(Design.Surfaces.bgSecondary.color(colorScheme))
+            .clipShape(RoundedRectangle(cornerRadius: Design.Radius._md))
         }
+    }
+
+    // MARK: - Vote Progress Bar
+
+    @ViewBuilder
+    private func voteProgressBar() -> some View {
+        let total = max(store.totalProposals, 1)
+        let drafted = store.draftVotes.count
+        let ratio = Double(drafted) / Double(total)
+
+        GeometryReader { geo in
+            let barHeight: CGFloat = 10
+            let knobDiameter: CGFloat = 10
+            let dotDiameter: CGFloat = 4
+            // Reserve half the knob on each side so the knob can sit fully
+            // inside the bar at 0% and 100% without clipping.
+            let usableWidth = geo.size.width - knobDiameter
+            let leadingInset = knobDiameter / 2
+
+            ZStack(alignment: .leading) {
+                // Solid capsule — the bar background.
+                Capsule()
+                    .fill(Design.Surfaces.bgTertiary.color(colorScheme))
+                    .frame(height: barHeight)
+
+                // Per-proposal dots inside the bar, slightly darker than the
+                // bar background so they read as markers without competing
+                // with the knob.
+                ForEach(0..<total, id: \.self) { index in
+                    let position: CGFloat = total <= 1
+                        ? 0
+                        : usableWidth * (CGFloat(index) / CGFloat(total - 1))
+                    Circle()
+                        .fill(Design.Text.tertiary.color(colorScheme).opacity(0.35))
+                        .frame(width: dotDiameter, height: dotDiameter)
+                        .offset(x: leadingInset + position - dotDiameter / 2)
+                }
+
+                // Knob — black playhead at the current vote progress.
+                Circle()
+                    .fill(Design.Text.primary.color(colorScheme))
+                    .frame(width: knobDiameter, height: knobDiameter)
+                    .offset(x: usableWidth * ratio)
+            }
+            .frame(maxHeight: .infinity, alignment: .center)
+        }
+        .frame(height: 10)
+    }
+
+    // MARK: - Meta Line
+
+    private var metaLine: String {
+        let endsString: String
+        let votingPowerString: String
+        let timeLeftString: String
+
+        if let session = store.activeSession {
+            let endsFormatter = DateFormatter()
+            endsFormatter.dateFormat = "MMM d, yyyy"
+            endsString = "Ends \(endsFormatter.string(from: session.voteEndTime))"
+        } else {
+            endsString = ""
+        }
+
+        votingPowerString = "Voting Power \(store.votingWeightZECString) ZEC"
+        timeLeftString = timeLeftLabel
+
+        return [endsString, votingPowerString, timeLeftString]
+            .filter { !$0.isEmpty }
+            .joined(separator: "  ·  ")
+    }
+
+    private var timeLeftLabel: String {
+        guard let session = store.activeSession else { return "" }
+        let remaining = session.voteEndTime.timeIntervalSince(now)
+        guard remaining > 0 else { return "Ended" }
+
+        let days = Int(remaining) / 86_400
+        let hours = (Int(remaining) % 86_400) / 3600
+        let minutes = (Int(remaining) % 3600) / 60
+
+        // Days uses long form to match the design ("4 days left").
+        // Hours/minutes use compact forms so the meta line doesn't wrap when
+        // the round is in its final stretch.
+        if days > 0 {
+            return "\(days) day\(days == 1 ? "" : "s") left"
+        } else if hours > 0 {
+            return "\(hours)h left"
+        } else {
+            return "\(minutes)m left"
+        }
+    }
+
+    /// Formats the snapshot block height with comma grouping regardless of the
+    /// device locale, so it always reads "#2,800,000" rather than "#2 800 000"
+    /// on locales with non-breaking-space groupers.
+    private func formattedSnapshotHeight(_ height: UInt64) -> String {
+        height.formatted(.number.locale(Locale(identifier: "en_US")).grouping(.automatic))
     }
 
     // MARK: - No Active Round
@@ -203,36 +303,13 @@ struct ProposalListView: View {
                 .multilineTextAlignment(.center)
         }
         .padding(20)
-        .background(Design.Surfaces.bgPrimary.color(colorScheme))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .frame(maxWidth: .infinity)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: Design.Radius._2xl))
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: Design.Radius._2xl)
                 .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
         )
-        .padding(.top, 8)
-    }
-
-    // MARK: - Status
-
-    @ViewBuilder
-    private func progressHeader() -> some View {
-        if store.activeSession != nil {
-            HStack {
-                let draftCount = store.draftVotes.count
-                if store.votedCount > 0 && draftCount > 0 {
-                    Text("\(store.votedCount) submitted, \(draftCount) drafted")
-                        .zFont(.medium, size: 14, style: Design.Text.secondary)
-                } else if draftCount > 0 {
-                    Text("\(draftCount) of \(store.totalProposals) drafted")
-                        .zFont(.medium, size: 14, style: Design.Text.secondary)
-                } else {
-                    Text("\(store.votedCount) of \(store.totalProposals) voted")
-                        .zFont(.medium, size: 14, style: Design.Text.secondary)
-                }
-
-                Spacer()
-            }
-        }
     }
 }
 
@@ -241,105 +318,178 @@ struct ProposalListView: View {
 extension ProposalListView {
     @ViewBuilder
     func proposalCard(_ proposal: Proposal) -> some View {
-        let vote = store.votes[proposal.id]
-        let draft = store.draftVotes[proposal.id]
-        let displayChoice = vote ?? draft
+        VStack(alignment: .leading, spacing: 12) {
+            ZIPBadge(zipNumber: proposal.zipNumber ?? "ZIP-TBD")
 
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let zip = proposal.zipNumber {
-                        ZIPBadge(zipNumber: zip)
-                    }
-                    Text(proposal.title)
-                        .zFont(.semiBold, size: 16, style: Design.Text.primary)
-                }
+            Text(proposal.title)
+                .zFont(.semiBold, size: 16, style: Design.Text.primary)
+                .tracking(-0.256)
+                .fixedSize(horizontal: false, vertical: true)
 
-                Spacer(minLength: 8)
-
-                if displayChoice != nil {
-                    if store.submittingProposalId == proposal.id {
-                        HStack(spacing: 4) {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                            VoteChip(
-                                choice: displayChoice,
-                                label: displayChoice.flatMap { c in proposal.options.first { $0.index == c.index }?.label },
-                                color: displayChoice.map { voteOptionColor(for: $0.index, total: proposal.options.count) }
-                            )
-                        }
-                    } else if vote != nil {
-                        VoteChip(
-                            choice: displayChoice,
-                            label: displayChoice.flatMap { c in proposal.options.first { $0.index == c.index }?.label },
-                            color: displayChoice.map { voteOptionColor(for: $0.index, total: proposal.options.count) }
-                        )
-                    } else {
-                        // Draft chip — dashed outline style
-                        HStack(spacing: 4) {
-                            Image(systemName: "pencil")
-                                .font(.system(size: 9, weight: .semibold))
-                            Text(displayChoice.flatMap { c in proposal.options.first { $0.index == c.index }?.label } ?? "Draft")
-                                .font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundStyle(displayChoice.map { voteOptionColor(for: $0.index, total: proposal.options.count) } ?? .secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .overlay(
-                            Capsule()
-                                .stroke(
-                                    displayChoice.map { voteOptionColor(for: $0.index, total: proposal.options.count) }?.opacity(0.5) ?? .secondary,
-                                    style: StrokeStyle(lineWidth: 1, dash: [4, 2])
-                                )
-                        )
-                    }
-                }
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Design.Text.tertiary.color(colorScheme))
-            }
-
-            Text(proposal.description)
-                .zFont(.regular, size: 13, style: Design.Text.secondary)
-                .lineLimit(2)
-
-            // Share submission tracking (DB-backed)
-            if vote != nil {
-                if store.shareTrackingStatus == .loading {
-                    ShareSubmissionStatus(
-                        confirmed: 0, total: 1,
-                        onInfoTapped: { store.send(.showShareInfo(proposal.id)) }
-                    )
-                } else if let progress = store.shareDelegationProgressByProposal[proposal.id], progress.total > 0 {
-                    ShareSubmissionStatus(
-                        confirmed: progress.confirmed, total: progress.total,
-                        onInfoTapped: { store.send(.showShareInfo(proposal.id)) }
-                    )
-                }
+            if !proposal.description.isEmpty {
+                Text(proposal.description)
+                    .zFont(.medium, size: 14, style: Design.Text.tertiary)
+                    .tracking(-0.224)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(16)
-        .background(Design.Surfaces.bgPrimary.color(colorScheme))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .padding(Design.Spacing._xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: Design.Radius._2xl))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(
-                    displayChoice != nil
-                        ? voteColor(displayChoice, proposal: proposal).opacity(vote != nil ? 0.3 : 0.15)
-                        : Design.Surfaces.strokeSecondary.color(colorScheme),
-                    lineWidth: 1
-                )
+            RoundedRectangle(cornerRadius: Design.Radius._2xl)
+                .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+        .shadow(color: Self.shadowSm, radius: 12, x: 0, y: 24)
+        .shadow(color: Self.shadowSm, radius: 1.5, x: 0, y: 3)
+        .shadow(color: Self.shadowSm, radius: 0.5, x: 0, y: 1)
         .contentShape(Rectangle())
         .onTapGesture {
             store.send(.proposalTapped(proposal.id))
         }
     }
+
+    private static let shadowSm = Color(red: 35.0 / 255.0, green: 31.0 / 255.0, blue: 32.0 / 255.0).opacity(0.04)
 }
 
-// MARK: - Batch Footer
+// MARK: - Bottom CTA
+
+extension ProposalListView {
+    @ViewBuilder
+    func bottomCTA() -> some View {
+        let status = store.batchSubmissionStatus
+
+        switch status {
+        case .idle:
+            ctaButton()
+        case .authorizing, .submitting, .completed, .failed:
+            // In-flight / result states keep the existing batchFooter UI for now.
+            // Will get its own redesign in a separate change.
+            batchFooter()
+        }
+    }
+
+    @ViewBuilder
+    private func ctaButton() -> some View {
+        let spec = ctaButtonSpec()
+        ZashiButton(spec.label) {
+            spec.action()
+        }
+        .disabled(spec.disabled)
+    }
+
+    private struct CTAButtonSpec {
+        let label: String
+        let action: () -> Void
+        let disabled: Bool
+    }
+
+    private func ctaButtonSpec() -> CTAButtonSpec {
+        let proposals = store.votingRound.proposals
+        let drafts = store.draftVotes
+        let draftCount = drafts.count
+        let total = proposals.count
+        let firstUnvoted = proposals.first { drafts[$0.id] == nil }
+
+        if total == 0 {
+            return CTAButtonSpec(label: "Start Voting", action: {}, disabled: true)
+        }
+
+        if draftCount == 0 {
+            let action: () -> Void = firstUnvoted.map { target in
+                { store.send(.proposalTapped(target.id)) }
+            } ?? {}
+            return CTAButtonSpec(label: "Start Voting", action: action, disabled: false)
+        }
+
+        return CTAButtonSpec(
+            label: draftCount < total ? "Continue Voting" : "Confirm & Submit",
+            action: { confirmOrSubmit() },
+            disabled: false
+        )
+    }
+
+    private func confirmOrSubmit() {
+        let unansweredCount = unansweredProposalCount()
+        if unansweredCount > 0 {
+            showUnansweredSheet = true
+        } else {
+            store.send(.submitAllDrafts)
+        }
+    }
+
+    /// Count of proposals without a draft vote.
+    private func unansweredProposalCount() -> Int {
+        store.votingRound.proposals.filter { store.draftVotes[$0.id] == nil }.count
+    }
+
+    /// Auto-draft Abstain for every unanswered proposal, then submit.
+    private func fillAbstainAndSubmit() {
+        for proposal in store.votingRound.proposals where store.draftVotes[proposal.id] == nil {
+            let abstainIndex = (proposal.options.map(\.index).max() ?? 0) + 1
+            store.send(.castVote(proposalId: proposal.id, choice: .option(abstainIndex)))
+        }
+        store.send(.submitAllDrafts)
+    }
+}
+
+// MARK: - Unanswered Confirmation Sheet
+
+extension ProposalListView {
+    @ViewBuilder
+    func unansweredConfirmationSheet() -> some View {
+        let count = unansweredProposalCount()
+
+        VStack(spacing: 0) {
+            // Drag indicator
+            Capsule()
+                .fill(Color.secondary.opacity(0.4))
+                .frame(width: 36, height: 5)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
+
+            // Warning icon
+            ZStack {
+                Circle()
+                    .fill(Color.red.opacity(0.1))
+                    .frame(width: 48, height: 48)
+                Image(systemName: "exclamationmark.circle")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(.red.opacity(0.8))
+            }
+            .padding(.bottom, 16)
+
+            Text("Unanswered Questions")
+                .zFont(.semiBold, size: 22, style: Design.Text.primary)
+                .padding(.bottom, 8)
+
+            Text("You have not responded to \(count) question\(count == 1 ? "" : "s"). Confirm to abstain from \(count == 1 ? "this question" : "these questions") or go back to respond.")
+                .zFont(size: 14, style: Design.Text.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+
+            VStack(spacing: 12) {
+                ZashiButton("Confirm", type: .secondary) {
+                    showUnansweredSheet = false
+                    fillAbstainAndSubmit()
+                }
+
+                ZashiButton("Go back") {
+                    showUnansweredSheet = false
+                }
+            }
+            .padding(.horizontal, 24)
+
+            Spacer()
+        }
+    }
+}
+
+// MARK: - Batch Footer (legacy in-flight states)
 
 extension ProposalListView {
     @ViewBuilder
@@ -348,24 +498,7 @@ extension ProposalListView {
 
         switch status {
         case .idle:
-            if store.canSubmitBatch {
-                let draftCount = store.draftVotes.count
-                Button {
-                    store.send(.submitAllDrafts)
-                } label: {
-                    HStack {
-                        Image(systemName: "paperplane.fill")
-                        Text("Submit \(draftCount) Vote\(draftCount == 1 ? "" : "s")")
-                            .fontWeight(.semibold)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .foregroundStyle(.white)
-                    .background(.green)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-                .padding(.top, 8)
-            }
+            EmptyView()
 
         case .authorizing:
             VStack(spacing: 10) {
@@ -383,13 +516,12 @@ extension ProposalListView {
                 }
             }
             .padding(16)
-            .background(Design.Surfaces.bgPrimary.color(colorScheme))
+            .background(Color.white)
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .stroke(Color.green.opacity(0.2), lineWidth: 1)
+                    .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
             )
-            .padding(.top, 8)
 
         case let .submitting(currentIndex, totalCount, _):
             VStack(spacing: 10) {
@@ -409,9 +541,9 @@ extension ProposalListView {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(Color.green.opacity(0.15))
+                            .fill(Design.Surfaces.bgTertiary.color(colorScheme))
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(Color.green)
+                            .fill(Design.Text.primary.color(colorScheme))
                             .frame(width: geo.size.width * Double(currentIndex + 1) / Double(totalCount))
                             .animation(.easeInOut(duration: 0.3), value: currentIndex)
                     }
@@ -419,13 +551,12 @@ extension ProposalListView {
                 .frame(height: 3)
             }
             .padding(16)
-            .background(Design.Surfaces.bgPrimary.color(colorScheme))
+            .background(Color.white)
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .stroke(Color.green.opacity(0.2), lineWidth: 1)
+                    .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
             )
-            .padding(.top, 8)
 
         case let .completed(successCount, failCount):
             VStack(spacing: 12) {
@@ -442,29 +573,17 @@ extension ProposalListView {
                     Spacer()
                 }
 
-                Button {
+                ZashiButton("Done") {
                     store.send(.dismissBatchResults)
-                } label: {
-                    Text("Done")
-                        .zFont(.medium, size: 14, style: Design.Text.primary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Design.Surfaces.bgPrimary.color(colorScheme))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
-                        )
                 }
             }
             .padding(16)
-            .background((failCount == 0 ? Color.green : Color.orange).opacity(0.08))
+            .background(Color.white)
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .stroke((failCount == 0 ? Color.green : Color.orange).opacity(0.2), lineWidth: 1)
+                    .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
             )
-            .padding(.top, 8)
 
         case let .failed(lastError, submittedCount, totalCount):
             VStack(spacing: 12) {
@@ -496,27 +615,6 @@ extension ProposalListView {
                 RoundedRectangle(cornerRadius: 14)
                     .stroke(Color.red.opacity(0.2), lineWidth: 1)
             )
-            .padding(.top, 8)
-        }
-    }
-}
-
-// MARK: - Helpers
-
-extension ProposalListView {
-    func voteColor(_ vote: VoteChoice?, proposal: Proposal) -> Color {
-        guard let vote else { return .clear }
-        return voteOptionColor(for: vote.index, total: proposal.options.count)
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func compactPopover() -> some View {
-        if #available(iOS 16.4, *) {
-            self.presentationCompactAdaptation(.popover)
-        } else {
-            self
         }
     }
 }

@@ -14,7 +14,10 @@ struct PollsListView: View {
         WithPerceptionTracking {
             ScrollView {
                 VStack(spacing: 16) {
-                    ForEach(store.allRounds, id: \.id) { item in
+                    // Newest polls first. allRounds is stored ascending so the
+                    // assigned round numbers stay sane (round 1 = oldest), but
+                    // the list shows the latest at the top.
+                    ForEach(Array(store.allRounds.reversed()), id: \.id) { item in
                         pollCard(for: item)
                     }
                 }

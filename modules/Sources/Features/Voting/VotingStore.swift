@@ -694,11 +694,10 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 state.screenStack = [.loading]
                 return .send(.initialize)
 
-            case .viewMyVotesTapped:
-                // TODO: navigate to the Voted Poll detail screen (image 17 in
-                // the design handoff). Placeholder no-op so the polls list
-                // Voted card has a target until that screen is implemented.
-                return .none
+            case .viewMyVotesTapped(let roundId):
+                // Reuse roundTapped to load the session and navigate into it.
+                // The proposal list will show confirmed votes in read-only mode.
+                return .send(.roundTapped(roundId))
 
             case .backToRoundsList:
                 // Cancel per-round effects and re-fetch rounds. allRoundsLoaded
@@ -793,7 +792,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 case .active:
                     // Go straight to proposal list — the witness/proof pipeline
                     // runs in the background once voting weight is loaded.
-                    state.screenStack = [.proposalList]
+                    state.screenStack = [.pollsList, .proposalList]
                     return .merge(
                         .cancel(id: cancelNewRoundPollingId),
                         .send(.startRoundStatusPolling),
@@ -955,7 +954,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                     logger.info("Restored \(draftCount) persisted draft votes")
                 }
 
-                state.screenStack = [.proposalList]
+                state.screenStack = [.pollsList, .proposalList]
                 return .merge(
                     .publisher {
                         votingCrypto.stateStream()
@@ -1511,7 +1510,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
             case .roundResumeChecked(let alreadyAuthorized):
                 if alreadyAuthorized {
                     state.delegationProofStatus = .complete
-                    state.screenStack = [.proposalList]
+                    state.screenStack = [.pollsList, .proposalList]
                     state.witnessStatus = .completed
                     // Restore bundleCount from the DB so vote casting knows how many bundles to iterate.
                     // Start state stream to sync votes and hotkey from the existing round,
@@ -1896,7 +1895,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 } else {
                     // All bundles signed — navigate to proposal list and start batch proving
                     state.keystoneSigningStatus = .idle
-                    state.screenStack = [.proposalList]
+                    state.screenStack = [.pollsList, .proposalList]
                     state.delegationProofStatus = .generating(progress: 0)
                     return .merge(persistEffect, .send(.keystoneAllBundlesSigned))
                 }
@@ -2026,7 +2025,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 if UInt32(savedSigs.count) >= state.bundleCount {
                     // All bundles were signed — go straight to batch proving
                     state.keystoneSigningStatus = .idle
-                    state.screenStack = [.proposalList]
+                    state.screenStack = [.pollsList, .proposalList]
                     state.delegationProofStatus = .generating(progress: 0)
                     return .send(.keystoneAllBundlesSigned)
                 } else {
@@ -2079,7 +2078,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 state.pendingGovernancePczt = nil
                 state.pendingUnsignedDelegationPczt = nil
                 state.keystoneSigningStatus = .idle
-                state.screenStack = [.proposalList]
+                state.screenStack = [.pollsList, .proposalList]
                 state.delegationProofStatus = .generating(progress: 0)
 
                 // Delete skipped bundles from DB so proof_generated reflects reality
@@ -2195,6 +2194,8 @@ public struct Voting { // swiftlint:disable:this type_body_length
 
             case .backToList:
                 if case .proposalDetail = state.currentScreen {
+                    state.screenStack.removeLast()
+                } else if case .proposalList = state.currentScreen, state.screenStack.count > 1 {
                     state.screenStack.removeLast()
                 }
                 return .none
@@ -2571,7 +2572,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
             // MARK: - Complete
 
             case .doneTapped:
-                state.screenStack = [.proposalList]
+                state.screenStack = [.pollsList, .proposalList]
                 return .none
             }
         }
