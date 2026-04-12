@@ -44,6 +44,7 @@ public struct VotingView: View {
         case .tallying: return "tallying"
         case .results: return "results"
         case .reviewVotes: return "reviewVotes"
+        case .confirmSubmission: return "confirmSubmission"
         case .error: return "error"
         case .walletSyncing: return "walletSyncing"
         }
@@ -68,6 +69,8 @@ public struct VotingView: View {
             ProposalListView(store: store, mode: .voting)
         case .reviewVotes:
             ProposalListView(store: store, mode: .review)
+        case .confirmSubmission:
+            ConfirmSubmissionView(store: store)
         case .proposalDetail:
             if let proposal = store.selectedProposal {
                 ProposalDetailView(store: store, proposal: proposal)

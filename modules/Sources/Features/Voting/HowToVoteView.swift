@@ -64,24 +64,7 @@ struct HowToVoteView: View {
 
     @ViewBuilder
     private func headerIcons() -> some View {
-        HStack(spacing: -4) {
-            ZStack {
-                Circle()
-                    .fill(Design.Text.primary.color(colorScheme))
-                    .frame(width: 48, height: 48)
-                Asset.Assets.zashiLogo.image
-                    .zImage(size: 22, color: Design.Surfaces.bgPrimary.color(colorScheme))
-            }
-
-            ZStack {
-                Circle()
-                    .fill(Design.Surfaces.bgTertiary.color(colorScheme))
-                    .frame(width: 48, height: 48)
-                Image(systemName: "hand.thumbsup")
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(Design.Text.primary.color(colorScheme))
-            }
-        }
+        VotingHeaderIcons()
     }
 
     // MARK: - Numbered Step

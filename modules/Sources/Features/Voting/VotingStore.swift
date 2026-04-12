@@ -133,6 +133,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
             case tallying
             case results
             case reviewVotes
+            case confirmSubmission
             case error(String)
             case walletSyncing
         }
@@ -646,6 +647,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
         case navigateToReview
         case confirmUnanswered
         case dismissUnanswered
+        case navigateToConfirmation
 
         // Round status polling
         case startRoundStatusPolling
@@ -2221,6 +2223,8 @@ public struct Voting { // swiftlint:disable:this type_body_length
             case .backToList:
                 if case .proposalDetail = state.currentScreen {
                     state.screenStack.removeLast()
+                } else if case .confirmSubmission = state.currentScreen {
+                    state.screenStack.removeLast()
                 } else if case .reviewVotes = state.currentScreen {
                     state.screenStack.removeLast()
                 } else if case .proposalList = state.currentScreen, state.screenStack.count > 1 {
@@ -2249,6 +2253,10 @@ public struct Voting { // swiftlint:disable:this type_body_length
 
             case .navigateToReview:
                 state.screenStack.append(.reviewVotes)
+                return .none
+
+            case .navigateToConfirmation:
+                state.screenStack.append(.confirmSubmission)
                 return .none
 
             case .confirmUnanswered:

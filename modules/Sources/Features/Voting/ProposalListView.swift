@@ -211,8 +211,11 @@ struct ProposalListView: View {
     @ViewBuilder
     private func voteProgressBar() -> some View {
         let total = max(store.totalProposals, 1)
-        let drafted = store.draftVotes.count
-        let ratio = Double(drafted) / Double(total)
+        // Count proposals with an explicit choice (draft or confirmed).
+        let voted = store.votingRound.proposals.filter { p in
+            store.draftVotes[p.id] != nil || store.votes[p.id] != nil
+        }.count
+        let ratio = Double(voted) / Double(total)
 
         GeometryReader { geo in
             let barHeight: CGFloat = 10
@@ -242,7 +245,7 @@ struct ProposalListView: View {
                         .offset(x: leadingInset + position - dotDiameter / 2)
                 }
 
-                // Knob — black playhead at the current vote progress.
+                // Knob — continuous progress based on voted / total.
                 Circle()
                     .fill(Design.Text.primary.color(colorScheme))
                     .frame(width: knobDiameter, height: knobDiameter)
@@ -256,22 +259,33 @@ struct ProposalListView: View {
     // MARK: - Meta Line
 
     private var metaLine: String {
-        let endsString: String
+        let dateString: String
         let votingPowerString: String
         let timeLeftString: String
 
-        if let session = store.activeSession {
-            let endsFormatter = DateFormatter()
-            endsFormatter.dateFormat = "MMM d, yyyy"
-            endsString = "Ends \(endsFormatter.string(from: session.voteEndTime))"
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMM d, yyyy"
+
+        if !store.votes.isEmpty {
+            // Already voted — show voted date
+            if let record = store.voteRecord {
+                dateString = "Voted \(dateFormatter.string(from: record.votedAt))"
+            } else {
+                dateString = "Voted"
+            }
+            votingPowerString = "Voting Power \(store.votingWeightZECString) ZEC"
+            timeLeftString = timeLeftLabel
+        } else if let session = store.activeSession {
+            dateString = "Ends \(dateFormatter.string(from: session.voteEndTime))"
+            votingPowerString = "Voting Power \(store.votingWeightZECString) ZEC"
+            timeLeftString = timeLeftLabel
         } else {
-            endsString = ""
+            dateString = ""
+            votingPowerString = "Voting Power \(store.votingWeightZECString) ZEC"
+            timeLeftString = timeLeftLabel
         }
 
-        votingPowerString = "Voting Power \(store.votingWeightZECString) ZEC"
-        timeLeftString = timeLeftLabel
-
-        return [endsString, votingPowerString, timeLeftString]
+        return [dateString, votingPowerString, timeLeftString]
             .filter { !$0.isEmpty }
             .joined(separator: "  ·  ")
     }
@@ -387,15 +401,11 @@ extension ProposalListView {
 extension ProposalListView {
     @ViewBuilder
     func bottomCTA() -> some View {
-        let status = store.batchSubmissionStatus
-
-        switch status {
-        case .idle:
+        if !store.votes.isEmpty {
+            // Votes already submitted — no CTA
+            EmptyView()
+        } else {
             ctaButton()
-        case .authorizing, .submitting, .completed, .failed:
-            // In-flight / result states keep the existing batchFooter UI for now.
-            // Will get its own redesign in a separate change.
-            batchFooter()
         }
     }
 
@@ -419,7 +429,7 @@ extension ProposalListView {
         case .review:
             return CTAButtonSpec(
                 label: "Confirm & Submit",
-                action: { store.send(.submitAllDrafts) },
+                action: { store.send(.navigateToConfirmation) },
                 disabled: false
             )
 
@@ -457,132 +467,3 @@ extension ProposalListView {
     }
 }
 
-// MARK: - Batch Footer (legacy in-flight states)
-
-extension ProposalListView {
-    @ViewBuilder
-    func batchFooter() -> some View {
-        let status = store.batchSubmissionStatus
-
-        switch status {
-        case .idle:
-            EmptyView()
-
-        case .authorizing:
-            VStack(spacing: 10) {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Authorizing vote...")
-                            .zFont(.semiBold, size: 15, style: Design.Text.primary)
-                        if case .generating(let progress) = store.delegationProofStatus {
-                            Text("\(Int(progress * 100))%")
-                                .zFont(.regular, size: 12, style: Design.Text.tertiary)
-                        }
-                    }
-                    Spacer()
-                }
-            }
-            .padding(16)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
-            )
-
-        case let .submitting(currentIndex, totalCount, _):
-            VStack(spacing: 10) {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Submitting vote \(currentIndex + 1) of \(totalCount)...")
-                            .zFont(.semiBold, size: 15, style: Design.Text.primary)
-                        if let stepLabel = store.voteSubmissionStepLabel {
-                            Text(stepLabel)
-                                .zFont(.regular, size: 12, style: Design.Text.tertiary)
-                        }
-                    }
-                    Spacer()
-                }
-
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Design.Surfaces.bgTertiary.color(colorScheme))
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Design.Text.primary.color(colorScheme))
-                            .frame(width: geo.size.width * Double(currentIndex + 1) / Double(totalCount))
-                            .animation(.easeInOut(duration: 0.3), value: currentIndex)
-                    }
-                }
-                .frame(height: 3)
-            }
-            .padding(16)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
-            )
-
-        case let .completed(successCount, failCount):
-            VStack(spacing: 12) {
-                HStack(spacing: 10) {
-                    Image(systemName: failCount == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(failCount == 0 ? .green : .orange)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(failCount == 0 ? "All votes submitted" : "Batch complete with errors")
-                            .zFont(.semiBold, size: 15, style: Design.Text.primary)
-                        Text("\(successCount) succeeded\(failCount > 0 ? ", \(failCount) failed" : "")")
-                            .zFont(.regular, size: 13, style: Design.Text.secondary)
-                    }
-                    Spacer()
-                }
-
-                ZashiButton("Done") {
-                    store.send(.dismissBatchResults)
-                }
-            }
-            .padding(16)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
-            )
-
-        case let .failed(lastError, submittedCount, totalCount):
-            VStack(spacing: 12) {
-                HStack(spacing: 10) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(.red)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Batch submission failed")
-                            .zFont(.semiBold, size: 15, style: Design.Text.primary)
-                        Text("\(submittedCount) of \(totalCount) submitted. \(lastError)")
-                            .zFont(.regular, size: 13, style: Design.Text.secondary)
-                            .lineLimit(3)
-                    }
-                    Spacer()
-                }
-
-                Button {
-                    store.send(.dismissBatchResults)
-                } label: {
-                    Text("Dismiss")
-                        .zFont(.medium, size: 13, style: Design.Text.primary)
-                }
-            }
-            .padding(16)
-            .background(Color.red.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(Color.red.opacity(0.2), lineWidth: 1)
-            )
-        }
-    }
-}

@@ -3,6 +3,45 @@ import Generated
 import UIComponents
 import VotingModels
 
+// MARK: - Voting Header Icons
+
+struct VotingHeaderIcons: View {
+    @Environment(\.colorScheme) var colorScheme
+    var showCheckmark: Bool = false
+
+    var body: some View {
+        HStack(spacing: -4) {
+            ZStack {
+                Circle()
+                    .fill(Design.Text.primary.color(colorScheme))
+                    .frame(width: 48, height: 48)
+                Asset.Assets.zashiLogo.image
+                    .zImage(size: 22, color: Design.Surfaces.bgPrimary.color(colorScheme))
+            }
+
+            if showCheckmark {
+                ZStack {
+                    Circle()
+                        .fill(Color.green.opacity(0.15))
+                        .frame(width: 48, height: 48)
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.green)
+                }
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(Design.Surfaces.bgTertiary.color(colorScheme))
+                        .frame(width: 48, height: 48)
+                    Image(systemName: "hand.thumbsup")
+                        .font(.system(size: 22, weight: .regular))
+                        .foregroundStyle(Design.Text.primary.color(colorScheme))
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Prototype Banner
 
 struct PrototypeBanner: View {
