@@ -457,7 +457,7 @@ struct ProposalListView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity)
-        .background(Color.white)
+        .background(Design.Surfaces.bgPrimary.color(colorScheme))
         .clipShape(RoundedRectangle(cornerRadius: Design.Radius._2xl))
         .overlay(
             RoundedRectangle(cornerRadius: Design.Radius._2xl)
@@ -499,7 +499,7 @@ extension ProposalListView {
         }
         .padding(Design.Spacing._xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white)
+        .background(Design.Surfaces.bgPrimary.color(colorScheme))
         .clipShape(RoundedRectangle(cornerRadius: Design.Radius._2xl))
         .overlay(
             RoundedRectangle(cornerRadius: Design.Radius._2xl)

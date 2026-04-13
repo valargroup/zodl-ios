@@ -104,7 +104,7 @@ struct ProposalDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color.white)
+        .background(Design.Surfaces.bgPrimary.color(colorScheme))
         .clipShape(RoundedRectangle(cornerRadius: Design.Radius._2xl))
         .overlay(
             RoundedRectangle(cornerRadius: Design.Radius._2xl)

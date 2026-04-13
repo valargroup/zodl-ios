@@ -99,10 +99,7 @@ struct PollsListView: View {
         }
         .padding(Design.Spacing._xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // bg-primary in Figma is pure white, but the codebase's
-        // Design.Surfaces.bgPrimary token currently resolves to bone — using
-        // Color.white directly to match the spec until the token is reconciled.
-        .background(Color.white)
+        .background(Design.Surfaces.bgPrimary.color(colorScheme))
         .clipShape(RoundedRectangle(cornerRadius: Design.Radius._2xl))
         .overlay(
             RoundedRectangle(cornerRadius: Design.Radius._2xl)

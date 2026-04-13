@@ -28,6 +28,7 @@ struct VotingHeaderIcons: View {
                         .font(.system(size: 24))
                         .foregroundStyle(.green)
                 }
+                .zIndex(1)
             } else {
                 ZStack {
                     Circle()
