@@ -178,8 +178,8 @@ struct ConfirmSubmissionView: View {
             }
 
         case .authorizing:
-            VStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 10) {
+            VStack(spacing: Design.Spacing._lg) {
+                VStack(alignment: .leading, spacing: Design.Spacing._lg) {
                     Text("Authorizing vote...")
                         .zFont(.semiBold, size: 15, style: Design.Text.primary)
 
@@ -200,18 +200,17 @@ struct ConfirmSubmissionView: View {
                             .zFont(.regular, size: 12, style: Design.Text.tertiary)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 20)
+                .padding(Design.Spacing._2xl)
                 .background(Design.Surfaces.bgSecondary.color(colorScheme))
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .clipShape(RoundedRectangle(cornerRadius: Design.Radius._xl))
 
                 ZashiButton("Authorizing...") {}
                     .disabled(true)
             }
 
         case let .submitting(currentIndex, totalCount, _):
-            VStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 10) {
+            VStack(spacing: Design.Spacing._lg) {
+                VStack(alignment: .leading, spacing: Design.Spacing._lg) {
                     Text("Submitting vote \(currentIndex + 1) of \(totalCount)...")
                         .zFont(.semiBold, size: 15, style: Design.Text.primary)
 
@@ -232,10 +231,9 @@ struct ConfirmSubmissionView: View {
                             .zFont(.regular, size: 12, style: Design.Text.tertiary)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 20)
+                .padding(Design.Spacing._2xl)
                 .background(Design.Surfaces.bgSecondary.color(colorScheme))
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .clipShape(RoundedRectangle(cornerRadius: Design.Radius._xl))
 
                 ZashiButton("Submitting vote \(currentIndex + 1) of \(totalCount)") {}
                     .disabled(true)
