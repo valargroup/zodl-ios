@@ -17,7 +17,7 @@ struct HowToVoteView: View {
                             .padding(.top, 24)
                             .padding(.bottom, 24)
 
-                        Text("How to vote with Zodl")
+                        Text(store.isKeystoneUser ? "How to vote with Keystone" : "How to vote with Zodl")
                             .zFont(.semiBold, size: 24, style: Design.Text.primary)
                             .padding(.bottom, 8)
 
