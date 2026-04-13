@@ -209,7 +209,7 @@ struct ProposalListView: View {
                 Button { showDescriptionSheet = false } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(Color(red: 114/255, green: 114/255, blue: 114/255))
+                        .foregroundStyle(Design.Text.tertiary.color(colorScheme))
                         .frame(width: 48, height: 48)
                         .background(Design.Surfaces.bgTertiary.color(colorScheme))
                         .clipShape(Circle())
@@ -478,7 +478,7 @@ extension ProposalListView {
                 ZIPBadge(zipNumber: proposal.zipNumber ?? "ZIP-TBD")
                 Spacer()
                 if let choice {
-                    let info = voteBadgeInfo(for: choice, proposal: proposal)
+                    let info = voteBadgeInfo(for: choice, proposal: proposal, colorScheme: colorScheme)
                     VoteBadgePill(label: info.label, color: info.color)
                 }
             }

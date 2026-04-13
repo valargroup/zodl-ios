@@ -30,7 +30,7 @@ private func winnerColorForDecision(
     }
     // For 3+ options the design hasn't specified a palette yet — fall back to
     // the existing palette so we don't crash on a multi-option round.
-    return voteOptionColor(for: decision, total: total)
+    return voteOptionColor(for: decision, total: total, colorScheme: colorScheme)
 }
 
 struct ResultsView: View {

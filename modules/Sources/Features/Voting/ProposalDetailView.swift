@@ -163,7 +163,7 @@ struct ProposalDetailView: View {
                 voteOptionRow(
                     label: option.label,
                     isSelected: isSelected,
-                    color: voteOptionColor(for: option.index, total: options.count),
+                    color: voteOptionColor(for: option.index, total: options.count, colorScheme: colorScheme),
                     isLocked: isLocked
                 ) {
                     impactFeedback.impactOccurred()
@@ -195,7 +195,7 @@ struct ProposalDetailView: View {
             HStack {
                 Text(label)
                     .zFont(.medium, size: 16,
-                           color: isSelected ? .white : Design.Text.primary.color(colorScheme))
+                           color: isSelected ? Design.Surfaces.bgPrimary.color(colorScheme) : Design.Text.primary.color(colorScheme))
 
                 Spacer()
 
@@ -203,11 +203,11 @@ struct ProposalDetailView: View {
                 ZStack {
                     if isSelected {
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(Color(red: 40/255, green: 38/255, blue: 34/255))
+                            .fill(Design.Text.primary.color(colorScheme))
                             .frame(width: 22, height: 22)
                         Image(systemName: "checkmark")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Design.Surfaces.bgPrimary.color(colorScheme))
                     } else {
                         RoundedRectangle(cornerRadius: 4)
                             .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1.5)
@@ -260,11 +260,11 @@ struct ProposalDetailView: View {
 
             ZStack {
                 Circle()
-                    .fill(Color.red.opacity(0.1))
+                    .fill(Design.Utility.ErrorRed._500.color(colorScheme).opacity(0.1))
                     .frame(width: 48, height: 48)
                 Image(systemName: "exclamationmark.circle")
                     .font(.system(size: 24, weight: .medium))
-                    .foregroundStyle(.red.opacity(0.8))
+                    .foregroundStyle(Design.Utility.ErrorRed._500.color(colorScheme).opacity(0.8))
             }
             .padding(.bottom, 16)
 

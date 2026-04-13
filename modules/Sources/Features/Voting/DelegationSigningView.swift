@@ -255,7 +255,7 @@ extension DelegationSigningView {
             case .failed(let error):
                 HStack(spacing: 6) {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Design.Utility.ErrorRed._500.color(colorScheme))
                     Text(error)
                         .zFont(.medium, size: 13, style: Design.Text.tertiary)
                         .lineLimit(3)
@@ -270,7 +270,9 @@ extension DelegationSigningView {
     func noteResultRow(_ result: Voting.State.NoteWitnessResult) -> some View {
         HStack(spacing: 8) {
             Image(systemName: result.verified ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundStyle(result.verified ? .green : .red)
+                .foregroundStyle(result.verified
+                                ? Design.Utility.SuccessGreen._500.color(colorScheme)
+                                : Design.Utility.ErrorRed._500.color(colorScheme))
                 .font(.system(size: 14))
 
             let zec = Double(result.value) / 100_000_000.0
@@ -284,7 +286,9 @@ extension DelegationSigningView {
 
             Text(result.verified ? "PASS" : "FAIL")
                 .zFont(.semiBold, size: 12, style: Design.Text.primary)
-                .foregroundStyle(result.verified ? .green : .red)
+                .foregroundStyle(result.verified
+                                ? Design.Utility.SuccessGreen._500.color(colorScheme)
+                                : Design.Utility.ErrorRed._500.color(colorScheme))
         }
     }
 

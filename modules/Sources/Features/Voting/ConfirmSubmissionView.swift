@@ -178,8 +178,7 @@ struct ConfirmSubmissionView: View {
             }
 
         case .authorizing:
-            VStack(alignment: .leading, spacing: 0) {
-                // Progress info
+            VStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Authorizing vote...")
                         .zFont(.semiBold, size: 15, style: Design.Text.primary)
@@ -202,20 +201,16 @@ struct ConfirmSubmissionView: View {
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 12)
+                .padding(.vertical, 20)
+                .background(Design.Surfaces.bgSecondary.color(colorScheme))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
 
-                // Button inside the same card
                 ZashiButton("Authorizing...") {}
                     .disabled(true)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
             }
-            .background(Design.Surfaces.bgSecondary.color(colorScheme))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
 
         case let .submitting(currentIndex, totalCount, _):
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Submitting vote \(currentIndex + 1) of \(totalCount)...")
                         .zFont(.semiBold, size: 15, style: Design.Text.primary)
@@ -238,16 +233,13 @@ struct ConfirmSubmissionView: View {
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 12)
+                .padding(.vertical, 20)
+                .background(Design.Surfaces.bgSecondary.color(colorScheme))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
 
                 ZashiButton("Submitting vote \(currentIndex + 1) of \(totalCount)") {}
                     .disabled(true)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
             }
-            .background(Design.Surfaces.bgSecondary.color(colorScheme))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
 
         case .completed:
             ZashiButton("Done") {
