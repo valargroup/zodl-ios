@@ -90,6 +90,10 @@ struct ConfirmSubmissionView: View {
     private var headerSubtitle: String {
         switch status {
         case .idle:
+            if store.isKeystoneUser {
+                // swiftlint:disable:next line_length
+                return "Review before signing the voting authorization with your Keystone. This is final. Your vote will be published and cannot be changed."
+            }
             return "Review before confirming the voting authorization. This is final. Your vote will be published and cannot be changed."
         case .authorizing, .submitting:
             return "Vote submission is in progress, please don\u{2019}t leave this screen until it is finished."
@@ -173,7 +177,7 @@ struct ConfirmSubmissionView: View {
     private func bottomSection() -> some View {
         switch status {
         case .idle:
-            ZashiButton("Confirm") {
+            ZashiButton(store.isKeystoneUser ? "Confirm with Keystone" : "Confirm") {
                 store.send(.submitAllDrafts)
             }
 
