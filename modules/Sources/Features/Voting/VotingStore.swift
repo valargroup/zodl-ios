@@ -2155,6 +2155,9 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 // to .submitting without a visible gap. Run cleanup in parallel.
                 if state.pendingBatchSubmission {
                     state.pendingBatchSubmission = false
+                    // Reset so canSubmitBatch passes — .authorizing makes
+                    // isBatchSubmitting true which blocks the guard.
+                    state.batchSubmissionStatus = .idle
                     return .merge(
                         .send(.submitAllDrafts),
                         .run { [votingCrypto] _ in
