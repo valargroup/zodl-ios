@@ -64,7 +64,7 @@ struct HowToVoteView: View {
 
     @ViewBuilder
     private func headerIcons() -> some View {
-        VotingHeaderIcons()
+        VotingHeaderIcons(isKeystone: store.isKeystoneUser)
     }
 
     // MARK: - Numbered Step

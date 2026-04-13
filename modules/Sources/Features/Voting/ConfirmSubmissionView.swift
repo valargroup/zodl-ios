@@ -60,7 +60,7 @@ struct ConfirmSubmissionView: View {
     @ViewBuilder
     private func headerSection() -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            VotingHeaderIcons(showCheckmark: isCompleted)
+            VotingHeaderIcons(isKeystone: store.isKeystoneUser, showCheckmark: isCompleted)
                 .padding(.top, 24)
                 .padding(.bottom, 24)
 

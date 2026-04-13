@@ -7,16 +7,24 @@ import VotingModels
 
 struct VotingHeaderIcons: View {
     @Environment(\.colorScheme) var colorScheme
+    var isKeystone: Bool = false
     var showCheckmark: Bool = false
 
     var body: some View {
         HStack(spacing: -4) {
-            ZStack {
-                Circle()
-                    .fill(Design.Text.primary.color(colorScheme))
+            if isKeystone {
+                Asset.Assets.Brandmarks.brandmarkKeystone.image
+                    .resizable()
                     .frame(width: 48, height: 48)
-                Asset.Assets.zashiLogo.image
-                    .zImage(size: 22, color: Design.Surfaces.bgPrimary.color(colorScheme))
+                    .clipShape(Circle())
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(Design.Text.primary.color(colorScheme))
+                        .frame(width: 48, height: 48)
+                    Asset.Assets.zashiLogo.image
+                        .zImage(size: 22, color: Design.Surfaces.bgPrimary.color(colorScheme))
+                }
             }
 
             if showCheckmark {
