@@ -1845,7 +1845,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
             case .openKeystoneSignatureScan:
                 keystoneHandler.resetQRDecoder()
                 var scanState = Scan.State.initial
-                scanState.instructions = "Scan signed delegation QR from Keystone"
+                scanState.instructions = "Scan Keystone QR code\nto sign the transaction"
                 scanState.checkers = [.keystoneVotingDelegationPCZTScanChecker]
                 state.keystoneScan = scanState
                 return .none
