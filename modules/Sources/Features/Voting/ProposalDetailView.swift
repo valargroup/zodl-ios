@@ -124,11 +124,13 @@ struct ProposalDetailView: View {
     @ViewBuilder
     private func bottomSection() -> some View {
         let confirmedVote = store.votes[proposal.id]
-        let isLocked = confirmedVote != nil || store.isBatchSubmitting
+        let isLocked = confirmedVote != nil || store.allVoted || store.isBatchSubmitting
 
         VStack(spacing: 20) {
             voteOptions(confirmedVote: confirmedVote, isLocked: isLocked)
-            navigationButtons()
+            if !store.allVoted {
+                navigationButtons()
+            }
         }
         .padding(.horizontal, 24)
         .padding(.top, 8)
