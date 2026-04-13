@@ -725,7 +725,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 // sees the cleared activeSession and re-renders the polls list.
                 state.screenStack = [.loading]
                 // Clean up persisted drafts for the current round
-                Self.clearPersistedDrafts(roundId: state.roundId)
+                Self.clearPersistedDrafts(walletId: state.walletId, roundId: state.roundId)
                 // Reset per-round state
                 state.activeSession = nil
                 state.votes = [:]
@@ -977,7 +977,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 // Don't set delegationProofStatus here — verifyWitnesses will set it
                 // only for fresh rounds, avoiding a brief flash for cached rounds.
                 // Restore persisted draft votes (survives app termination)
-                let restored = Self.loadDrafts(roundId: state.roundId)
+                let restored = Self.loadDrafts(walletId: state.walletId, roundId: state.roundId)
                 // Only keep drafts for proposals that haven't been submitted yet
                 state.draftVotes = restored.filter { state.votes[$0.key] == nil }
                 if !state.draftVotes.isEmpty {
@@ -2196,7 +2196,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 } else {
                     state.draftVotes[proposalId] = choice
                 }
-                Self.persistDrafts(state.draftVotes, roundId: state.roundId)
+                Self.persistDrafts(state.draftVotes, walletId: state.walletId, roundId: state.roundId)
                 return .none
 
             case .voteSubmissionBundleStarted(let index):
@@ -2283,7 +2283,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                     }
                     state.draftVotes[proposal.id] = .option(abstainIndex)
                 }
-                Self.persistDrafts(state.draftVotes, roundId: state.roundId)
+                Self.persistDrafts(state.draftVotes, walletId: state.walletId, roundId: state.roundId)
                 state.screenStack.removeLast()
                 state.screenStack.append(.reviewVotes)
                 return .none
@@ -2308,7 +2308,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
             case let .setDraftVote(proposalId, choice):
                 guard state.votes[proposalId] == nil else { return .none }
                 state.draftVotes[proposalId] = choice
-                Self.persistDrafts(state.draftVotes, roundId: state.roundId)
+                Self.persistDrafts(state.draftVotes, walletId: state.walletId, roundId: state.roundId)
                 // Pop back to the list so the user can continue drafting other proposals
                 if case .proposalDetail = state.currentScreen {
                     state.screenStack.removeLast()
@@ -2317,7 +2317,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
 
             case let .clearDraftVote(proposalId):
                 state.draftVotes.removeValue(forKey: proposalId)
-                Self.persistDrafts(state.draftVotes, roundId: state.roundId)
+                Self.persistDrafts(state.draftVotes, walletId: state.walletId, roundId: state.roundId)
                 return .none
 
             case .submitAllDrafts:
@@ -2617,7 +2617,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
             case let .batchVoteSubmitted(proposalId, choice):
                 state.votes[proposalId] = choice
                 state.draftVotes.removeValue(forKey: proposalId)
-                Self.persistDrafts(state.draftVotes, roundId: state.roundId)
+                Self.persistDrafts(state.draftVotes, walletId: state.walletId, roundId: state.roundId)
                 return .none
 
             case let .batchVoteFailed(proposalId, error):
@@ -2632,7 +2632,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 state.batchSubmissionStatus = .completed(successCount: successCount, failCount: failCount)
                 // Clean up persisted drafts when all votes succeeded
                 if failCount == 0 {
-                    Self.clearPersistedDrafts(roundId: state.roundId)
+                    Self.clearPersistedDrafts(walletId: state.walletId, roundId: state.roundId)
                 }
                 return .none
 
@@ -2861,9 +2861,13 @@ public struct Voting { // swiftlint:disable:this type_body_length
         )
     }
 
+    private static func draftKey(walletId: String, roundId: String) -> String {
+        "\(draftPrefix)\(walletId)|\(roundId)"
+    }
+
     /// Persist draft votes to UserDefaults so they survive app termination.
-    static func persistDrafts(_ drafts: [UInt32: VoteChoice], roundId: String) {
-        let key = "\(draftPrefix)\(roundId)"
+    static func persistDrafts(_ drafts: [UInt32: VoteChoice], walletId: String, roundId: String) {
+        let key = draftKey(walletId: walletId, roundId: roundId)
         if drafts.isEmpty {
             UserDefaults.standard.removeObject(forKey: key)
         } else {
@@ -2875,8 +2879,8 @@ public struct Voting { // swiftlint:disable:this type_body_length
     }
 
     /// Load persisted draft votes for a round.
-    static func loadDrafts(roundId: String) -> [UInt32: VoteChoice] {
-        let key = "\(draftPrefix)\(roundId)"
+    static func loadDrafts(walletId: String, roundId: String) -> [UInt32: VoteChoice] {
+        let key = draftKey(walletId: walletId, roundId: roundId)
         guard let raw = UserDefaults.standard.dictionary(forKey: key) as? [String: UInt32] else {
             return [:]
         }
@@ -2888,8 +2892,8 @@ public struct Voting { // swiftlint:disable:this type_body_length
     }
 
     /// Remove all persisted drafts for a round.
-    static func clearPersistedDrafts(roundId: String) {
-        UserDefaults.standard.removeObject(forKey: "\(draftPrefix)\(roundId)")
+    static func clearPersistedDrafts(walletId: String, roundId: String) {
+        UserDefaults.standard.removeObject(forKey: draftKey(walletId: walletId, roundId: roundId))
     }
 }
 
