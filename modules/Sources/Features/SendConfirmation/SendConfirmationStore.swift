@@ -72,8 +72,6 @@ public struct SendConfirmation {
         public var isTransparentAddress = false
         public var message: String
         public var messageToBeShared: String?
-        public var partialFailureTxIds: [String] = []
-        public var partialFailureStatuses: [String] = []
         public var pczt: Pczt?
         public var pcztForUI: Pczt?
         public var pcztWithProofs: Pczt?
@@ -166,7 +164,6 @@ public struct SendConfirmation {
         case sendDone
         case sendFailed(ZcashError?, Bool)
         case sendingScreenOnAppear
-        case sendPartial([String], [String])
         case sendRequested
         case sendSupportMailFinished
         case sendTapped
@@ -369,12 +366,6 @@ public struct SendConfirmation {
                     try? await mainQueue.sleep(for: .seconds(waitTimeToPresentScreen))
                     await send(.updateResult(isTxIdPresentInTheDB ? .pending : .failure))
                 }
-
-            case let .sendPartial(txIds, statuses):
-                state.isSending = false
-                state.partialFailureTxIds = txIds
-                state.partialFailureStatuses = statuses
-                return .send(.updateResult(.pending))
 
             case .updateTxIdToExpand(let txId):
                 state.txIdToExpand = txId
@@ -621,7 +612,7 @@ public struct SendConfirmation {
                         await send(.sendDone)
                     } catch {
                         await send(.resetPCZTs)
-                        await send(.updateFailedData(-998, error.toZcashError().detailedMessage, pcztMessage))
+                        await send(.updateFailedData(-996, error.toZcashError().detailedMessage, pcztMessage))
                         await send(.sendFailed(error.toZcashError(), false))
                     }
                 }
@@ -669,6 +660,7 @@ extension SendConfirmation {
     private enum SubmitResult {
         case server(String?)
         case graceExpired
+        case timedOut
     }
 
     /// Submits raw transaction bytes to all endpoints in parallel.
@@ -703,12 +695,12 @@ extension SendConfirmation {
                     group.addTask {
                         do {
                             try await Task.sleep(for: .seconds(30))
-                            // Only log if 30 seconds actually elapsed (not cancelled by grace period)
                             LoggerProxy.error("[MultiSubmit] Timed out waiting for any server to respond.")
+                            return .timedOut
                         } catch {
                             // Cancelled by grace period or all-reject — normal cleanup
+                            return .timedOut
                         }
-                        return .server(nil)
                     }
 
                     var failedCount = 0
@@ -731,7 +723,11 @@ extension SendConfirmation {
                                 continuation.resume(returning: nil)
                                 return
                             }
-                        case .graceExpired:
+                        case .graceExpired, .timedOut:
+                            if !hasResumed {
+                                hasResumed = true
+                                continuation.resume(returning: nil)
+                            }
                             group.cancelAll()
                             return
                         }

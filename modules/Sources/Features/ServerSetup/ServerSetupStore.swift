@@ -146,7 +146,10 @@ public struct ServerSetup {
 
             case .connectionModeChanged(let mode):
                 state.connectionMode = mode
-                if mode == .manual && state.topKServers.isEmpty {
+                if mode == .automatic {
+                    state.selectedServer = state.initialSelectedServer
+                    state.customServer = state.initialCustomServer
+                } else if mode == .manual && state.topKServers.isEmpty {
                     return .send(.evaluateServers)
                 }
                 return .none
@@ -232,6 +235,7 @@ public struct ServerSetup {
                             let serverConfig = UserPreferencesStorage.ServerConfig(
                                 host: best.host, port: best.port, isCustom: false
                             )
+                            // Also update legacy ups_server key so existing code reading that key stays in sync
                             try? userStoredPreferences.setServer(serverConfig)
 
                             let bestServerString = "\(best.host):\(best.port)"
@@ -268,6 +272,7 @@ public struct ServerSetup {
                             let serverConfig = UserPreferencesStorage.ServerConfig(
                                 host: endpoint.host, port: endpoint.port, isCustom: isCustom
                             )
+                            // Also update legacy ups_server key so existing code reading that key stays in sync
                             try? userStoredPreferences.setServer(serverConfig)
 
                             let serverStr = "\(endpoint.host):\(endpoint.port)"
@@ -281,7 +286,7 @@ public struct ServerSetup {
 
             case .switchFailed(let error):
                 state.isUpdatingServer = false
-                state.alert = AlertState.endpoindSwitchFailed(error)
+                state.alert = AlertState.endpointSwitchFailed(error)
                 return .none
 
             case .switchSucceeded(let bestServer):
@@ -322,7 +327,7 @@ extension ServerSetup {
 // MARK: Alerts
 
 extension AlertState where Action == ServerSetup.Action {
-    public static func endpoindSwitchFailed(_ error: ZcashError) -> AlertState {
+    public static func endpointSwitchFailed(_ error: ZcashError) -> AlertState {
         AlertState {
             TextState(String(localizable: .serverSetupAlertFailedTitle))
         } actions: {

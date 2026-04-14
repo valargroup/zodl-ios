@@ -56,7 +56,7 @@ extension SDKSynchronizerClient: TestDependencyKey {
         submitTransaction: unimplemented("\(Self.self).submitTransaction"),
         isSeedRelevantToAnyDerivedAccount: unimplemented("\(Self.self).isSeedRelevantToAnyDerivedAccount"),
         refreshExchangeRateUSD: unimplemented("\(Self.self).refreshExchangeRateUSD", placeholder: {}()),
-        evaluateBestOf: { _, _, _, _, _, _ in fatalError("evaluateBestOf not implemented") },
+        evaluateBestOf: unimplemented("\(Self.self).evaluateBestOf", placeholder: []),
         walletAccounts: unimplemented("\(Self.self).walletAccounts", placeholder: []),
         estimateBirthdayHeight: unimplemented("\(Self.self).estimateBirthdayHeight", placeholder: BlockHeight(0)),
         createPCZTFromProposal: unimplemented("\(Self.self).createPCZTFromProposal", placeholder: Pczt()),

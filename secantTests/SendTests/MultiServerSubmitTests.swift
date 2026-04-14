@@ -233,9 +233,9 @@ class MultiServerSubmitTests: XCTestCase {
         XCTAssertNotNil(store.state.result, "Send result must be set after all effects complete")
     }
 
-    /// When at least one server accepts the transaction, the send should succeed
-    /// even if other servers reject it.
-    func testFirstSuccessWins_whileOthersFail() async throws {
+    /// Automatic mode broadcasts to all known servers in parallel.
+    /// Verifies that submitTransaction is called once per known endpoint.
+    func testAutomaticMode_broadcastsToAllKnownServers() async throws {
         let txRaw = Data([0x01, 0x02, 0x03])
 
         let tx = ZcashTransaction.Overview(
@@ -257,6 +257,9 @@ class MultiServerSubmitTests: XCTestCase {
             totalSpent: nil,
             totalReceived: nil
         )
+
+        let submittedEndpoints = LockIsolated<[String]>([])
+        let expectedEndpoints = ZcashSDKEnvironment.endpoints(for: .mainnet)
 
         var initialState = SendConfirmation.State(
             address: "ztestaddr",
@@ -281,7 +284,7 @@ class MultiServerSubmitTests: XCTestCase {
         let testNetwork = ZcashNetworkBuilder.network(for: .mainnet)
         store.dependencies.zcashSDKEnvironment = ZcashSDKEnvironment(
             latestCheckpoint: BlockHeight(0),
-            endpoint: { LightWalletEndpoint(address: "good.server", port: 443) },
+            endpoint: { LightWalletEndpoint(address: "us.zec.stardust.rest", port: 443) },
             exchangeRateIPRateLimit: 120,
             exchangeRateStaleLimit: 900,
             memoCharLimit: 512,
@@ -289,7 +292,7 @@ class MultiServerSubmitTests: XCTestCase {
             network: testNetwork,
             requiredTransactionConfirmations: 10,
             sdkVersion: "test",
-            serverConfig: { .init(host: "good.server", port: 443, isCustom: false) },
+            serverConfig: { .init(host: "us.zec.stardust.rest", port: 443, isCustom: false) },
             servers: [],
             shieldingThreshold: Zatoshi(100_000),
             tokenName: "ZEC"
@@ -300,18 +303,115 @@ class MultiServerSubmitTests: XCTestCase {
         }
 
         store.dependencies.sdkSynchronizer.submitTransaction = { _, endpoint in
-            if endpoint.host == "bad.server" {
-                throw ZcashError.synchronizerServerSwitch
-            }
+            submittedEndpoints.withValue { $0.append("\(endpoint.host):\(endpoint.port)") }
         }
 
         store.dependencies.userStoredPreferences.selectedServers = {
-            .init(mode: .manual, servers: [.init(host: "good.server", port: 443, isCustom: false)])
+            .init(mode: .automatic, servers: [])
         }
 
         await store.send(.sendTriggered)
         await store.finish()
 
-        XCTAssertEqual(store.state.result, .success, "Send should succeed when the selected server accepts")
+        submittedEndpoints.withValue { endpoints in
+            XCTAssertEqual(
+                Set(endpoints).count,
+                expectedEndpoints.count,
+                "Automatic mode must broadcast to every known endpoint (expected \(expectedEndpoints.count), got \(endpoints.count) unique)"
+            )
+            for ep in expectedEndpoints {
+                XCTAssertTrue(
+                    endpoints.contains("\(ep.host):\(ep.port)"),
+                    "Missing submission to \(ep.host):\(ep.port)"
+                )
+            }
+        }
+
+        XCTAssertEqual(store.state.result, .success, "Send should succeed when servers accept")
+    }
+
+    /// When at least one server accepts the transaction in automatic mode, the send
+    /// should succeed even if most other servers reject it.
+    func testFirstSuccessWins_whileOthersFail() async throws {
+        let txRaw = Data([0x01, 0x02, 0x03])
+
+        let tx = ZcashTransaction.Overview(
+            accountUUID: testAccountUUID,
+            blockTime: nil,
+            expiryHeight: nil,
+            fee: nil,
+            index: nil,
+            isShielding: false,
+            hasChange: false,
+            memoCount: 0,
+            minedHeight: nil,
+            raw: txRaw,
+            rawID: Data([0xAA]),
+            receivedNoteCount: 0,
+            sentNoteCount: 1,
+            value: Zatoshi(-100_000),
+            isExpiredUmined: nil,
+            totalSpent: nil,
+            totalReceived: nil
+        )
+
+        // Only the default server succeeds; all others reject
+        let successHost = "us.zec.stardust.rest"
+
+        var initialState = SendConfirmation.State(
+            address: "ztestaddr",
+            amount: Zatoshi(100_000),
+            feeRequired: Zatoshi(10_000),
+            message: "",
+            proposal: .testOnlyFakeProposal(totalFee: 10_000)
+        )
+        initialState.$selectedWalletAccount.withLock { $0 = testWalletAccount }
+
+        let store = TestStore(initialState: initialState) {
+            SendConfirmation()
+        }
+
+        store.exhaustivity = .off
+
+        store.dependencies.audioServices = AudioServicesClient(systemSoundVibrate: { })
+        store.dependencies.derivationTool = .liveValue
+        store.dependencies.mainQueue = .immediate
+        store.dependencies.mnemonic = .liveValue
+        store.dependencies.walletStorage.exportWallet = { .placeholder }
+        let testNetwork = ZcashNetworkBuilder.network(for: .mainnet)
+        store.dependencies.zcashSDKEnvironment = ZcashSDKEnvironment(
+            latestCheckpoint: BlockHeight(0),
+            endpoint: { LightWalletEndpoint(address: successHost, port: 443) },
+            exchangeRateIPRateLimit: 120,
+            exchangeRateStaleLimit: 900,
+            memoCharLimit: 512,
+            mnemonicWordsMaxCount: 24,
+            network: testNetwork,
+            requiredTransactionConfirmations: 10,
+            sdkVersion: "test",
+            serverConfig: { .init(host: successHost, port: 443, isCustom: false) },
+            servers: [],
+            shieldingThreshold: Zatoshi(100_000),
+            tokenName: "ZEC"
+        )
+
+        store.dependencies.sdkSynchronizer.createProposedTransactionsWithoutSubmitting = { _, _ in
+            [tx]
+        }
+
+        store.dependencies.sdkSynchronizer.submitTransaction = { _, endpoint in
+            if endpoint.host != successHost {
+                throw ZcashError.synchronizerServerSwitch
+            }
+        }
+
+        store.dependencies.userStoredPreferences.selectedServers = {
+            .init(mode: .automatic, servers: [])
+        }
+
+        await store.send(.sendTriggered)
+        await store.finish()
+
+        XCTAssertEqual(store.state.result, .success, "Send should succeed when at least one server accepts")
     }
 }
