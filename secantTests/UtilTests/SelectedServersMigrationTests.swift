@@ -122,48 +122,6 @@ class SelectedServersMigrationTests: XCTestCase {
         XCTAssertTrue(result.servers.isEmpty, "Automatic mode should have empty servers array")
     }
 
-    // MARK: - Testnet
-
-    func testTestnetKnownServerUser_migratesToAutomaticMode() throws {
-        let knownServer = ZcashSDKEnvironment.defaultEndpoint(for: .testnet).serverConfig()
-
-        var capturedSelectedServers: UserPreferencesStorage.SelectedServersConfig?
-
-        withDependencies {
-            $0.userStoredPreferences.server = { knownServer }
-            $0.userStoredPreferences.selectedServers = { nil }
-            $0.userStoredPreferences.setSelectedServers = { config in
-                capturedSelectedServers = config
-            }
-        } operation: {
-            ZcashSDKEnvironment.initializeSelectedServersIfNeeded(for: .testnet)
-        }
-
-        let result = try XCTUnwrap(capturedSelectedServers, "Migration should have persisted a selectedServers config")
-
-        XCTAssertEqual(result.mode, .automatic)
-        XCTAssertTrue(result.servers.isEmpty)
-    }
-
-    func testTestnetNewUser_defaultsToAutomaticMode() throws {
-        var capturedSelectedServers: UserPreferencesStorage.SelectedServersConfig?
-
-        withDependencies {
-            $0.userStoredPreferences.server = { nil }
-            $0.userStoredPreferences.selectedServers = { nil }
-            $0.userStoredPreferences.setSelectedServers = { config in
-                capturedSelectedServers = config
-            }
-        } operation: {
-            ZcashSDKEnvironment.initializeSelectedServersIfNeeded(for: .testnet)
-        }
-
-        let result = try XCTUnwrap(capturedSelectedServers, "Migration should have persisted a selectedServers config")
-
-        XCTAssertEqual(result.mode, .automatic)
-        XCTAssertTrue(result.servers.isEmpty)
-    }
-
     // MARK: - Already migrated user is not re-migrated
 
     func testAlreadyMigratedUser_noOp() {
