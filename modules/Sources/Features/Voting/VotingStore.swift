@@ -114,6 +114,8 @@ public struct Voting { // swiftlint:disable:this type_body_length
     var votingAPI
     @Dependency(\.votingCrypto)
     var votingCrypto
+    @Dependency(\.localAuthentication)
+    var localAuthentication
     @Dependency(\.walletStorage)
     var walletStorage
     @Dependency(\.zcashSDKEnvironment)
@@ -676,6 +678,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
         case setDraftVote(proposalId: UInt32, choice: VoteChoice)
         case clearDraftVote(proposalId: UInt32)
         case submitAllDrafts
+        case authenticationSucceeded
         case batchSubmissionProgress(currentIndex: Int, totalCount: Int, proposalId: UInt32)
         case batchVoteSubmitted(proposalId: UInt32, choice: VoteChoice)
         case batchVoteFailed(proposalId: UInt32, error: String)
@@ -2159,7 +2162,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                     // isBatchSubmitting true which blocks the guard.
                     state.batchSubmissionStatus = .idle
                     return .merge(
-                        .send(.submitAllDrafts),
+                        .send(.authenticationSucceeded),
                         .run { [votingCrypto] _ in
                             await votingCrypto.refreshState(roundId)
                             try await votingCrypto.clearRecoveryState(roundId)
@@ -2331,6 +2334,21 @@ public struct Voting { // swiftlint:disable:this type_body_length
 
             case .submitAllDrafts:
                 guard state.canSubmitBatch else { return .none }
+                guard state.activeSession != nil else { return .none }
+
+                // Non-Keystone: require device authentication (FaceID/TouchID/Passcode)
+                // before proceeding. Keystone users authenticate via their hardware device.
+                // Skip auth when resuming after delegation (pendingBatchSubmission flow).
+                if !state.isKeystoneUser && !state.pendingBatchSubmission {
+                    return .run { [localAuthentication] send in
+                        guard await localAuthentication.authenticate() else { return }
+                        await send(.authenticationSucceeded)
+                    }
+                }
+                return .send(.authenticationSucceeded)
+
+            case .authenticationSucceeded:
+                guard state.canSubmitBatch || state.isBatchSubmitting else { return .none }
                 guard state.activeSession != nil else { return .none }
 
                 // Record the moment the user confirmed their vote. Persisted so the
