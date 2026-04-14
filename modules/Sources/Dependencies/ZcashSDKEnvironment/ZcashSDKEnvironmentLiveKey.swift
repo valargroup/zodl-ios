@@ -10,6 +10,7 @@ import ZcashLightClientKit
 
 import UserPreferencesStorage
 import UserDefaults
+import Utils
 
 extension ZcashSDKEnvironment {
     public static func live(network: ZcashNetwork) -> Self {
@@ -38,8 +39,16 @@ extension ZcashSDKEnvironment {
 extension ZcashSDKEnvironment {
     public static func serverConfig(for network: NetworkType) -> UserPreferencesStorage.ServerConfig {
         migrateVersion1IfNeeded()
-        
+        initializeSelectedServersIfNeeded(for: network)
+
         guard let serverConfig = storedServerConfig() else {
+            // Fall back to first selected server (manual mode) or default endpoint (automatic mode)
+            @Dependency(\.userStoredPreferences) var userStoredPreferences
+            if let selected = userStoredPreferences.selectedServers() {
+                if selected.mode == .manual, let first = selected.servers.first {
+                    return first
+                }
+            }
             return defaultEndpoint(for: network).serverConfig()
         }
         
@@ -95,6 +104,30 @@ extension ZcashSDKEnvironment {
         }
     }
     
+    /// On first launch (no selected servers config), initialize based on existing server preference:
+    /// - Custom server users: manual mode with their custom server (privacy)
+    /// - Known server users / new users: automatic mode (sends to all servers)
+    static func initializeSelectedServersIfNeeded(for network: NetworkType) {
+        @Dependency(\.userStoredPreferences) var userStoredPreferences
+
+        guard userStoredPreferences.selectedServers() == nil else { return }
+
+        if let existing = userStoredPreferences.server(), existing.isCustom {
+            do {
+                try userStoredPreferences.setSelectedServers(.init(mode: .manual, servers: [existing]))
+            } catch {
+                LoggerProxy.error("[Migration] Failed to persist custom server selection: \(error)")
+            }
+            return
+        }
+
+        do {
+            try userStoredPreferences.setSelectedServers(.init(mode: .automatic, servers: []))
+        } catch {
+            LoggerProxy.error("[Migration] Failed to persist default server selection: \(error)")
+        }
+    }
+
     static func storedServerConfig() -> UserPreferencesStorage.ServerConfig? {
         @Dependency(\.userStoredPreferences) var userStoredPreferences
         return userStoredPreferences.server()
