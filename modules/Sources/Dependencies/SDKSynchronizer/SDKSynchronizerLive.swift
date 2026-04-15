@@ -184,8 +184,8 @@ extension SDKSynchronizerClient: DependencyKey {
                     return .partial(txIds: txIds, statuses: statuses)
                 }
             },
-            createProposedTransactionsWithoutSubmitting: { proposal, spendingKey in
-                try await synchronizer.createProposedTransactionsWithoutSubmitting(
+            broadcasterCreateProposedTransactions: { proposal, spendingKey in
+                try await synchronizer.broadcaster.createProposedTransactions(
                     proposal: proposal,
                     spendingKey: spendingKey
                 )
@@ -198,8 +198,8 @@ extension SDKSynchronizerClient: DependencyKey {
                     transparentReceiver: transparentReceiver
                 )
             },
-            submitTransaction: { rawTx, endpoint in
-                try await synchronizer.submitTransaction(rawTx, to: endpoint)
+            broadcasterSubmit: { rawTx, endpoint in
+                try await synchronizer.broadcaster.submit(rawTx, to: endpoint)
             },
             isSeedRelevantToAnyDerivedAccount: { seed in
                 try await synchronizer.isSeedRelevantToAnyDerivedAccount(seed: seed)
@@ -293,8 +293,8 @@ extension SDKSynchronizerClient: DependencyKey {
                     return .partial(txIds: txIds, statuses: statuses)
                 }
             },
-            createTransactionFromPCZTWithoutSubmitting: { pcztWithProofs, pcztWithSigs in
-                try await synchronizer.createTransactionFromPCZTWithoutSubmitting(
+            broadcasterCreateTransactionFromPCZT: { pcztWithProofs, pcztWithSigs in
+                try await synchronizer.broadcaster.createTransactionFromPCZT(
                     pcztWithProofs: pcztWithProofs,
                     pcztWithSigs: pcztWithSigs
                 )

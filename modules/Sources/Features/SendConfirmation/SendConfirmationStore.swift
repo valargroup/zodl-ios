@@ -305,7 +305,7 @@ public struct SendConfirmation {
                         let spendingKey = try derivationTool.deriveSpendingKey(seedBytes, zip32AccountIndex, network)
 
                         // Step 1: Create transactions locally (no network call)
-                        let transactions = try await sdkSynchronizer.createProposedTransactionsWithoutSubmitting(proposal, spendingKey)
+                        let transactions = try await sdkSynchronizer.broadcasterCreateProposedTransactions(proposal, spendingKey)
 
                         guard !transactions.isEmpty else {
                             await send(.sendFailed("No transactions created from proposal".toZcashError(), false))
@@ -567,7 +567,7 @@ public struct SendConfirmation {
                 return .run { send in
                     do {
                         // Step 1: Create transaction locally from PCZT (no network call)
-                        let transactions = try await sdkSynchronizer.createTransactionFromPCZTWithoutSubmitting(pcztWithProofs, pcztWithSigs)
+                        let transactions = try await sdkSynchronizer.broadcasterCreateTransactionFromPCZT(pcztWithProofs, pcztWithSigs)
 
                         await send(.resetPCZTs)
 
@@ -682,7 +682,7 @@ extension SendConfirmation {
                         let server = "\(endpoint.host):\(endpoint.port)"
                         group.addTask {
                             do {
-                                try await sdkSync.submitTransaction(rawTx, endpoint)
+                                try await sdkSync.broadcasterSubmit(rawTx, endpoint)
                                 LoggerProxy.event("[MultiSubmit] \(server) SUCCESS.")
                                 return .server(server)
                             } catch {

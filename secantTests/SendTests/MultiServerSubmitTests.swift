@@ -121,11 +121,11 @@ class MultiServerSubmitTests: XCTestCase {
             tokenName: "ZEC"
         )
 
-        store.dependencies.sdkSynchronizer.createProposedTransactionsWithoutSubmitting = { _, _ in
+        store.dependencies.sdkSynchronizer.broadcasterCreateProposedTransactions = { _, _ in
             [tx1, tx2]
         }
 
-        store.dependencies.sdkSynchronizer.submitTransaction = { rawTx, _ in
+        store.dependencies.sdkSynchronizer.broadcasterSubmit = { rawTx, _ in
             submittedRawTxs.withValue { $0.append(rawTx) }
         }
 
@@ -144,7 +144,7 @@ class MultiServerSubmitTests: XCTestCase {
     }
 
     /// When all servers reject a transaction, the send should report failure.
-    /// Verifies that sendDone is never called by confirming submitTransaction
+    /// Verifies that sendDone is never called by confirming broadcasterSubmit
     /// throws for all servers and the send result is not success.
     func testAllServersReject_neverCallsSendDone() async throws {
         let txRaw = Data([0x01, 0x02, 0x03])
@@ -208,12 +208,12 @@ class MultiServerSubmitTests: XCTestCase {
             tokenName: "ZEC"
         )
 
-        store.dependencies.sdkSynchronizer.createProposedTransactionsWithoutSubmitting = { _, _ in
+        store.dependencies.sdkSynchronizer.broadcasterCreateProposedTransactions = { _, _ in
             [tx]
         }
 
         // All servers reject
-        store.dependencies.sdkSynchronizer.submitTransaction = { _, _ in
+        store.dependencies.sdkSynchronizer.broadcasterSubmit = { _, _ in
             submitCallCount.withValue { $0 += 1 }
             throw ZcashError.synchronizerServerSwitch
         }
@@ -234,7 +234,7 @@ class MultiServerSubmitTests: XCTestCase {
     }
 
     /// Automatic mode broadcasts to all known servers in parallel.
-    /// Verifies that submitTransaction is called once per known endpoint.
+    /// Verifies that broadcasterSubmit is called once per known endpoint.
     func testAutomaticMode_broadcastsToAllKnownServers() async throws {
         let txRaw = Data([0x01, 0x02, 0x03])
 
@@ -298,11 +298,11 @@ class MultiServerSubmitTests: XCTestCase {
             tokenName: "ZEC"
         )
 
-        store.dependencies.sdkSynchronizer.createProposedTransactionsWithoutSubmitting = { _, _ in
+        store.dependencies.sdkSynchronizer.broadcasterCreateProposedTransactions = { _, _ in
             [tx]
         }
 
-        store.dependencies.sdkSynchronizer.submitTransaction = { _, endpoint in
+        store.dependencies.sdkSynchronizer.broadcasterSubmit = { _, endpoint in
             submittedEndpoints.withValue { $0.append("\(endpoint.host):\(endpoint.port)") }
         }
 
@@ -402,11 +402,11 @@ class MultiServerSubmitTests: XCTestCase {
             tokenName: "ZEC"
         )
 
-        store.dependencies.sdkSynchronizer.createProposedTransactionsWithoutSubmitting = { _, _ in
+        store.dependencies.sdkSynchronizer.broadcasterCreateProposedTransactions = { _, _ in
             [tx]
         }
 
-        store.dependencies.sdkSynchronizer.submitTransaction = { _, endpoint in
+        store.dependencies.sdkSynchronizer.broadcasterSubmit = { _, endpoint in
             submittedEndpoints.withValue { $0.append(endpoint.host) }
             if endpoint.host != successHost {
                 throw ZcashError.synchronizerServerSwitch
