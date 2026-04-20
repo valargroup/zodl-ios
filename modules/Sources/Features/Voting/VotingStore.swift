@@ -137,6 +137,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
             case reviewVotes
             case confirmSubmission
             case error(String)
+            case configError(String)
             case walletSyncing
         }
 
@@ -586,6 +587,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
         // Initialization (DB, wallet notes, hotkey)
         case initialize
         case serviceConfigLoaded(VotingServiceConfig)
+        case configUnsupported(String)
         case activeSessionLoaded(VotingSession)
         case noActiveRound
         case votingWeightLoaded(UInt64, [NoteInfo])
@@ -773,6 +775,34 @@ public struct Voting { // swiftlint:disable:this type_body_length
             // MARK: - Rounds List
 
             case .allRoundsLoaded(let sessions):
+                // Bind the CDN config to its chain round and verify proposals match.
+                // Per ZIP 1244, the config is published per-round and must pin exactly
+                // one on-chain round via `vote_round_id`; the `proposals_hash` commits
+                // to the proposals the user will see.
+                if let config = state.serviceConfig {
+                    let configRoundId = config.voteRoundId.lowercased()
+                    guard let matchingSession = sessions.first(where: { $0.voteRoundId.hexString == configRoundId }) else {
+                        let chainIds = sessions.map { $0.voteRoundId.hexString.prefix(16) }.joined(separator: ", ")
+                        logger.error("Config round \(configRoundId.prefix(16))... not found in chain rounds [\(chainIds)]")
+                        let error = VotingConfigError.roundIdMismatch(
+                            configRoundId: configRoundId,
+                            chainRoundId: sessions.first?.voteRoundId.hexString ?? ""
+                        )
+                        state.screenStack = [.configError(error.errorDescription ?? "Voting config is invalid.")]
+                        return .none
+                    }
+                    let computed = VotingServiceConfig.computeProposalsHash(config.proposals)
+                    if computed != matchingSession.proposalsHash {
+                        logger.error("proposals_hash mismatch: expected=\(matchingSession.proposalsHash.base64EncodedString()) got=\(computed.base64EncodedString())")
+                        let error = VotingConfigError.proposalsHashMismatch(
+                            expected: matchingSession.proposalsHash,
+                            actual: computed
+                        )
+                        state.screenStack = [.configError(error.errorDescription ?? "Voting config is invalid.")]
+                        return .none
+                    }
+                }
+
                 // Sort by created_at_height ascending for reliable creation order
                 let sorted = sessions.sorted { $0.createdAtHeight < $1.createdAtHeight }
                 state.allRounds = sorted.enumerated().map { index, session in
@@ -843,13 +873,20 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 // Guard against onAppear re-firing while already initialized
                 guard state.currentScreen == .loading else { return .none }
                 return .run { [votingAPI] send in
-                    // 1. Fetch service config (local override → CDN → deployed dev server fallback)
+                    // 1. Fetch service config (local override → CDN). Decode or version failures
+                    //    surface as VotingConfigError and block the voting feature entirely;
+                    //    the wallet must be updated before the user can proceed.
                     let config = try await votingAPI.fetchServiceConfig()
                     await send(.serviceConfigLoaded(config))
                 } catch: { error, send in
-                    logger.error("Service config fetch failed: \(error)")
-                    await send(.serviceConfigLoaded(.fallback))
+                    logger.error("Service config unavailable: \(error)")
+                    let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    await send(.configUnsupported(message))
                 }
+
+            case .configUnsupported(let message):
+                state.screenStack = [.configError(message)]
+                return .none
 
             case .serviceConfigLoaded(let config):
                 state.serviceConfig = config
@@ -1748,7 +1785,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 let isKeystoneUser = state.isKeystoneUser
                 let roundName = state.votingRound.title
                 // PIR server URL from resolved service config
-                let pirServerUrl = state.serviceConfig?.pirServers.first?.url ?? "https://46-101-255-48.sslip.io/nullifier"
+                let pirServerUrl = state.serviceConfig?.pirEndpoints.first?.url ?? "https://46-101-255-48.sslip.io/nullifier"
                 let keystoneBundleIndex = state.currentKeystoneBundleIndex
                 let bundleCount = state.bundleCount
                 return .merge(
@@ -1953,7 +1990,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 let walletDbPath = databaseFiles.dataDbURLFor(network).path
                 let networkId: UInt32 = network.networkType == .mainnet ? 0 : 1
                 let accountIndex: UInt32 = state.selectedWalletAccount.flatMap(\.zip32AccountIndex).map { UInt32($0.index) } ?? 0
-                let pirServerUrl = state.serviceConfig?.pirServers.first?.url ?? "https://46-101-255-48.sslip.io/nullifier"
+                let pirServerUrl = state.serviceConfig?.pirEndpoints.first?.url ?? "https://46-101-255-48.sslip.io/nullifier"
                 let storedSignatures = state.keystoneBundleSignatures
                 let signedCount = storedSignatures.count
 
@@ -2393,7 +2430,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 let proposals = state.votingRound.proposals
                 let cachedNotes = state.walletNotes
                 let roundName = state.votingRound.title
-                let pirServerUrl = state.serviceConfig?.pirServers.first?.url ?? "https://46-101-255-48.sslip.io/nullifier"
+                let pirServerUrl = state.serviceConfig?.pirEndpoints.first?.url ?? "https://46-101-255-48.sslip.io/nullifier"
 
                 let submitAtDeadline: Double?
                 if singleShare {
