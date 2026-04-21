@@ -592,7 +592,6 @@ public struct Voting { // swiftlint:disable:this type_body_length
         case initialize
         case serviceConfigLoaded(VotingServiceConfig)
         case configUnsupported(String)
-        case retryConfigFetch
         case activeSessionLoaded(VotingSession)
         case noActiveRound
         case votingWeightLoaded(UInt64, [NoteInfo])
@@ -828,6 +827,10 @@ public struct Voting { // swiftlint:disable:this type_body_length
                         state.screenStack = [.configError(error.errorDescription ?? "Voting config is invalid.")]
                         return .none
                     }
+
+                    // Binding succeeded. Reset the one-shot retry flag so a later round
+                    // transition in this session can still get its own auto-retry attempt.
+                    state.hasAttemptedConfigRefresh = false
                 }
 
                 // Sort by created_at_height ascending for reliable creation order
@@ -914,14 +917,6 @@ public struct Voting { // swiftlint:disable:this type_body_length
             case .configUnsupported(let message):
                 state.screenStack = [.configError(message)]
                 return .none
-
-            case .retryConfigFetch:
-                // User tapped "Retry" on the configError screen. Reset the single-retry flag,
-                // clear cached config, return to loading, and re-run the full init pipeline.
-                state.hasAttemptedConfigRefresh = false
-                state.serviceConfig = nil
-                state.screenStack = [.loading]
-                return .send(.initialize)
 
             case .serviceConfigLoaded(let config):
                 state.serviceConfig = config

@@ -102,15 +102,14 @@ struct VotingConfigErrorView: View {
 
                 Spacer()
 
-                // "Retry" gives the user a self-recovery path: if the config was stale due to
-                // a round transition the single lazy-refresh didn't catch (e.g. the publisher
-                // updated the CDN after the first fetch), tapping Retry re-runs the full init
-                // pipeline with a fresh config fetch.
+                // Dismiss-only: `.configError` is a terminal session state. The lazy
+                // auto-retry in VotingStore.allRoundsLoaded already handles the common
+                // transient failure (round transition + publisher update). If the user
+                // lands here, they're either in a genuinely incompatible state (needs a
+                // wallet update) or a persistent failure (CDN unreachable, tampered
+                // config). Retry can't fix those; cold-reentry handles residual transient
+                // cases just as well.
                 VStack(spacing: 12) {
-                    ZashiButton("Retry") {
-                        store.send(.retryConfigFetch)
-                    }
-
                     ZashiButton("Dismiss", type: .ghost) {
                         store.send(.dismissFlow)
                     }
