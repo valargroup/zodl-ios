@@ -902,6 +902,10 @@ public struct Voting { // swiftlint:disable:this type_body_length
             case .initialize:
                 // Guard against onAppear re-firing while already initialized
                 guard state.currentScreen == .loading else { return .none }
+                // Reset the one-shot auto-retry gate so a cold re-entry into voting
+                // (e.g. after dismissing from .configError) gets its own retry allotment
+                // instead of inheriting a stuck-true flag from the prior session.
+                state.hasAttemptedConfigRefresh = false
                 return .run { [votingAPI] send in
                     // 1. Fetch service config (local override → CDN). Decode or version failures
                     //    surface as VotingConfigError and block the voting feature entirely;
