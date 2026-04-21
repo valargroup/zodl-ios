@@ -111,8 +111,8 @@ public struct VotingServiceConfig: Codable, Equatable, Sendable {
     public static let debugFallback = VotingServiceConfig(
         configVersion: 1,
         voteRoundId: String(repeating: "0", count: 64),
-        voteServers: [ServiceEndpoint(url: "https://46-101-255-48.sslip.io", label: "Primary")],
-        pirEndpoints: [ServiceEndpoint(url: "https://46-101-255-48.sslip.io/nullifier", label: "PIR Server")],
+        voteServers: [ServiceEndpoint(url: "https://vote-chain-primary.valargroup.org", label: "Primary")],
+        pirEndpoints: [ServiceEndpoint(url: "https://pir.valargroup.org", label: "PIR Server")],
         snapshotHeight: 0,
         voteEndTime: 0,
         proposals: [],

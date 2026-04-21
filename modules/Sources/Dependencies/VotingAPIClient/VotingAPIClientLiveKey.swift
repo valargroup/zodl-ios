@@ -13,11 +13,11 @@ actor SvAPIConfigStore {
     static let shared = SvAPIConfigStore()
 
     /// Primary vote server URL (serves both chain API and helper endpoints).
-    var baseURL = "https://46-101-255-48.sslip.io"
+    var baseURL = "https://vote-chain-primary.valargroup.org"
     /// All vote server URLs from CDN config (used for share distribution).
-    var voteServerURLs: [String] = ["https://46-101-255-48.sslip.io"]
+    var voteServerURLs: [String] = ["https://vote-chain-primary.valargroup.org"]
     /// Primary PIR server URL.
-    var pirServerURL = "https://46-101-255-48.sslip.io/nullifier"
+    var pirServerURL = "https://pir.valargroup.org"
 
     func configure(from config: VotingServiceConfig) {
         if let first = config.voteServers.first {
