@@ -520,6 +520,33 @@ public struct Voting { // swiftlint:disable:this type_body_length
             votingRound.proposals.allSatisfy { draftVotes[$0.id] != nil }
         }
 
+        /// Display-time choice per proposal. Prefers the draft, then the
+        /// submitted vote. Once voteRecord is set, falls back to the
+        /// synthesized Abstain index — the submission flow guarantees every
+        /// proposal is either explicitly voted or abstained, so a missing
+        /// entry post-submit is always an abstain (either one we skipped on
+        /// the wire, or one dropped from state.votes by a DB resync).
+        public var effectiveChoices: [UInt32: VoteChoice] {
+            let hasSubmitted = voteRecord != nil
+            var result: [UInt32: VoteChoice] = [:]
+            for proposal in votingRound.proposals {
+                if let explicit = draftVotes[proposal.id] ?? votes[proposal.id] {
+                    result[proposal.id] = explicit
+                } else if hasSubmitted {
+                    let fallbackIndex: UInt32
+                    if let abstain = proposal.options.first(where: {
+                        $0.label.localizedCaseInsensitiveContains("abstain")
+                    }) {
+                        fallbackIndex = abstain.index
+                    } else {
+                        fallbackIndex = (proposal.options.map(\.index).max() ?? 0) + 1
+                    }
+                    result[proposal.id] = .option(fallbackIndex)
+                }
+            }
+            return result
+        }
+
         /// Whether the current proposal detail was opened from the review screen.
         public var isEditingFromReview: Bool {
             guard case .proposalDetail = screenStack.last else { return false }
@@ -788,6 +815,17 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 // legitimate "no active voting" state, not a tampered config, and the
                 // existing noRounds-screen branch below handles it.
                 if let config = state.serviceConfig, !sessions.isEmpty {
+                    #if DEBUG
+                    // DEBUG escape hatch: trust the chain unconditionally. Local dev against
+                    // an admin-created round produces a round_id (and possibly proposals) that
+                    // won't match whatever config the bundle ships — bricking on that would
+                    // block the whole iteration loop. The checks only exist to prove the
+                    // client and chain agree on the question set for production releases.
+                    let configRoundId = config.voteRoundId.lowercased()
+                    let chainIds = sessions.map { $0.voteRoundId.hexString.prefix(16) }.joined(separator: ", ")
+                    logger.info("DEBUG: skipping config↔chain binding. config=\(configRoundId.prefix(16))... chain=[\(chainIds)]")
+                    state.hasAttemptedConfigRefresh = false
+                    #else
                     let configRoundId = config.voteRoundId.lowercased()
                     let hasMatch = sessions.contains { $0.voteRoundId.hexString == configRoundId }
 
@@ -831,6 +869,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
                     // Binding succeeded. Reset the one-shot retry flag so a later round
                     // transition in this session can still get its own auto-retry attempt.
                     state.hasAttemptedConfigRefresh = false
+                    #endif
                 }
 
                 // Sort by created_at_height ascending for reliable creation order
@@ -2298,6 +2337,7 @@ public struct Voting { // swiftlint:disable:this type_body_length
             // MARK: - Proposal Detail
 
             case let .castVote(proposalId, choice):
+                guard state.voteRecord == nil else { return .none }
                 guard state.votes[proposalId] == nil else { return .none }
                 if state.draftVotes[proposalId] == choice {
                     state.draftVotes.removeValue(forKey: proposalId)
@@ -2379,8 +2419,10 @@ public struct Voting { // swiftlint:disable:this type_body_length
                 return .none
 
             case .confirmUnanswered:
+                guard state.voteRecord == nil else { return .none }
                 // Auto-draft Abstain for every unanswered proposal, then go to review.
-                for proposal in state.votingRound.proposals where state.draftVotes[proposal.id] == nil {
+                for proposal in state.votingRound.proposals
+                    where state.draftVotes[proposal.id] == nil && state.votes[proposal.id] == nil {
                     let abstainIndex: UInt32
                     if let existing = proposal.options.first(where: {
                         $0.label.localizedCaseInsensitiveContains("abstain")
@@ -2552,9 +2594,23 @@ public struct Voting { // swiftlint:disable:this type_body_length
                     for (draftIndex, draft) in drafts.enumerated() {
                         let proposalId = draft.key
                         let choice = draft.value
-                        let numOptions = UInt32(proposals.first { $0.id == proposalId }?.options.count ?? 3)
+                        let proposal = proposals.first { $0.id == proposalId }
+                        let numOptions = UInt32(proposal?.options.count ?? 3)
 
                         await send(.batchSubmissionProgress(currentIndex: draftIndex, totalCount: totalCount, proposalId: proposalId))
+
+                        // Synthetic abstain: when proposal data doesn't declare an
+                        // Abstain option, the UI synthesizes one at an index outside
+                        // the declared range. There's no valid commitment to build for
+                        // it — skip submission so no VAN is consumed and nothing hits
+                        // chain. UX treats it as "done" (draft cleared, counted as
+                        // successful).
+                        let isSyntheticAbstain = !(proposal?.options.contains { $0.index == choice.index } ?? true)
+                        if isSyntheticAbstain {
+                            successCount += 1
+                            await send(.batchVoteSubmitted(proposalId: proposalId, choice: choice))
+                            continue
+                        }
 
                         do {
                             let existingVotes = try await votingCrypto.getVotes(roundId)
