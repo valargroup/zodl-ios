@@ -40,11 +40,6 @@ public struct VotingAPIClient {
     public var fetchAllRounds: @Sendable () async throws -> [VotingSession]
     public var fetchRoundById: @Sendable (_ roundIdHex: String) async throws -> VotingSession
     public var fetchTallyResults: @Sendable (_ roundIdHex: String) async throws -> [UInt32: TallyResult]
-    public var fetchVotingWeight: @Sendable (_ snapshotHeight: UInt64) async throws -> UInt64
-    public var fetchNoteInclusionProofs: @Sendable (_ commitments: [Data]) async throws -> [Data]
-    public var fetchNullifierExclusionProofs: @Sendable (_ nullifiers: [Data]) async throws -> [Data]
-    public var fetchCommitmentTreeState: @Sendable (_ height: UInt64) async throws -> CommitmentTreeState
-    public var fetchLatestCommitmentTree: @Sendable () async throws -> CommitmentTreeState
     public var submitDelegation: @Sendable (_ registration: DelegationRegistration) async throws -> TxResult
     public var submitVoteCommitment: @Sendable (_ bundle: VoteCommitmentBundle, _ signature: CastVoteSignature) async throws -> TxResult
     /// Distribute shares across available vote servers. Config must be set via `configureURLs` first.
