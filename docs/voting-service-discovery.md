@@ -32,6 +32,7 @@ Per ZIP 1244 §"Vote Configuration Format":
     {
       "id": 1,
       "title": "Approve protocol upgrade",
+      "description": "Approve or oppose the proposed protocol upgrade.",
       "options": [
         {"index": 0, "label": "Support"},
         {"index": 1, "label": "Oppose"}
@@ -57,7 +58,7 @@ All fields are required. `JSONDecoder` throws on any missing field, which surfac
 | `pir_endpoints`      | PIR servers for nullifier-exclusion proofs. The first entry is used.                                                                                                        |
 | `snapshot_height`    | Zcash block height the Orchard-pool voting snapshot was taken at.                                                                                                           |
 | `vote_end_time`      | Unix timestamp after which votes are no longer accepted.                                                                                                                    |
-| `proposals`          | Proposals the user votes on. Each has `id` (1-indexed), `title`, and `options` (each with `index` and `label`).                                                             |
+| `proposals`          | Proposals the user votes on. Each has `id` (1-indexed), `title`, `description`, and `options` (each with `index` and `label`).                                             |
 | `supported_versions` | What versions of each component the server speaks. See "Version handling" below.                                                                                            |
 
 ## Version handling
@@ -83,7 +84,7 @@ Per ZIP 1244 §"Proposals Hash", the chain's `VoteRound.proposals_hash` is `SHA-
 
 Mismatch routes to `.configError`. This prevents a tampered CDN config from displaying different proposals than what's committed on-chain.
 
-**Canonical form:** proposals sorted by `id` ascending, options by `index` ascending, no whitespace, keys emitted in order `id`, `title`, `options` (and `index`, `label` per option), UTF-8. The Swift implementation uses `JSONEncoder` with `.withoutEscapingSlashes` to match Rust `serde_json::to_string` byte output (verified byte-identical across `/`, U+2028/U+2029, control characters, CJK, emoji). See [`VotingServiceConfig.canonicalProposalsJSON`](../modules/Sources/Dependencies/VotingModels/VotingServiceConfig.swift) and the pinned-hash regression test in [`VotingServiceConfigTests.swift`](../secantTests/VotingTests/VotingServiceConfigTests.swift).
+**Canonical form:** proposals sorted by `id` ascending, options by `index` ascending, no whitespace, keys emitted in order `id`, `title`, `description`, `options` (and `index`, `label` per option), UTF-8. The Swift implementation uses `JSONEncoder` with `.withoutEscapingSlashes` to match Rust `serde_json::to_string` byte output (verified byte-identical across `/`, U+2028/U+2029, control characters, CJK, emoji). See [`VotingServiceConfig.canonicalProposalsJSON`](../modules/Sources/Dependencies/VotingModels/VotingServiceConfig.swift) and the pinned-hash regression tests in [`VotingServiceConfigTests.swift`](../secantTests/VotingTests/VotingServiceConfigTests.swift).
 
 ## Failure recovery
 

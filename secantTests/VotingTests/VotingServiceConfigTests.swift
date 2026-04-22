@@ -1,6 +1,12 @@
 import XCTest
 import VotingModels
 
+// Test fixtures contain pinned canonical JSON strings that intentionally exceed
+// the project's line-length limit — keeping them single-line makes the expected
+// byte output obvious and prevents accidental line-ending differences from
+// changing the pinned hash.
+// swiftlint:disable line_length
+
 final class VotingServiceConfigTests: XCTestCase {
 
     // MARK: - Canonical JSON (ZIP 1244 §"Proposals Hash")
@@ -9,15 +15,16 @@ final class VotingServiceConfigTests: XCTestCase {
     private static let zipExampleProposal = VotingServiceConfig.Proposal(
         id: 1,
         title: "Approve protocol upgrade",
+        description: "Approve or oppose the proposed protocol upgrade.",
         options: [
             .init(index: 0, label: "Support"),
             .init(index: 1, label: "Oppose"),
         ]
     )
     private static let zipExampleCanonical =
-        #"[{"id":1,"title":"Approve protocol upgrade","options":[{"index":0,"label":"Support"},{"index":1,"label":"Oppose"}]}]"#
+        #"[{"id":1,"title":"Approve protocol upgrade","description":"Approve or oppose the proposed protocol upgrade.","options":[{"index":0,"label":"Support"},{"index":1,"label":"Oppose"}]}]"#
     /// SHA-256 of the above canonical string, computed with `shasum -a 256` for reference.
-    private static let zipExampleHashHex = "bcff94e9b35a239681145f517dd46e293d287fcb3ad23f2f67676ba598aa6e50"
+    private static let zipExampleHashHex = "3f9a361d43c4ddb77ad138a091374e2e2958718e64937f33df99a09bd567e63d"
 
     func testCanonicalJSONMatchesZIPExample() {
         let canonical = VotingServiceConfig.canonicalProposalsJSON([Self.zipExampleProposal])
@@ -35,18 +42,20 @@ final class VotingServiceConfigTests: XCTestCase {
             VotingServiceConfig.Proposal(
                 id: 2,
                 title: "B",
+                description: "second",
                 options: [.init(index: 1, label: "No"), .init(index: 0, label: "Yes")]
             ),
             VotingServiceConfig.Proposal(
                 id: 1,
                 title: "A",
+                description: "first",
                 options: [.init(index: 0, label: "X"), .init(index: 1, label: "Y")]
             ),
         ]
         let canonical = VotingServiceConfig.canonicalProposalsJSON(unsorted)
         XCTAssertEqual(
             canonical,
-            #"[{"id":1,"title":"A","options":[{"index":0,"label":"X"},{"index":1,"label":"Y"}]},{"id":2,"title":"B","options":[{"index":0,"label":"Yes"},{"index":1,"label":"No"}]}]"#
+            #"[{"id":1,"title":"A","description":"first","options":[{"index":0,"label":"X"},{"index":1,"label":"Y"}]},{"id":2,"title":"B","description":"second","options":[{"index":0,"label":"Yes"},{"index":1,"label":"No"}]}]"#
         )
     }
 
@@ -54,6 +63,7 @@ final class VotingServiceConfigTests: XCTestCase {
         let proposal = VotingServiceConfig.Proposal(
             id: 1,
             title: "Quote \" and backslash \\",
+            description: "tab\there",
             options: [.init(index: 0, label: "tab\there")]
         )
         let canonical = VotingServiceConfig.canonicalProposalsJSON([proposal])
@@ -71,6 +81,7 @@ final class VotingServiceConfigTests: XCTestCase {
         let proposal = VotingServiceConfig.Proposal(
             id: 1,
             title: "NU5/NU6 activation",
+            description: "Should we activate NU5/NU6?",
             options: [
                 .init(index: 0, label: "Yes"),
                 .init(index: 1, label: "No"),
@@ -79,11 +90,11 @@ final class VotingServiceConfigTests: XCTestCase {
         let canonical = VotingServiceConfig.canonicalProposalsJSON([proposal])
         XCTAssertEqual(
             canonical,
-            #"[{"id":1,"title":"NU5/NU6 activation","options":[{"index":0,"label":"Yes"},{"index":1,"label":"No"}]}]"#
+            #"[{"id":1,"title":"NU5/NU6 activation","description":"Should we activate NU5/NU6?","options":[{"index":0,"label":"Yes"},{"index":1,"label":"No"}]}]"#
         )
         let hex = VotingServiceConfig.computeProposalsHash([proposal])
             .map { String(format: "%02x", $0) }.joined()
-        XCTAssertEqual(hex, "45abc7c68ccaded8775d0a2ecdb1344c8f2edfab4dc0503bd757e0d8e07598e1")
+        XCTAssertEqual(hex, "d4a105be1f44c96ca4abc6c952d7a6deb3f7cf4df2059a2afe4bb828b96078a1")
     }
 
     // MARK: - Decode regression for post-Part-E CDN JSON
@@ -105,6 +116,7 @@ final class VotingServiceConfigTests: XCTestCase {
             {
               "id": 1,
               "title": "Approve protocol upgrade",
+              "description": "Approve or oppose the proposed protocol upgrade.",
               "options": [
                 {"index": 0, "label": "Support"},
                 {"index": 1, "label": "Oppose"}
@@ -229,3 +241,4 @@ final class VotingServiceConfigTests: XCTestCase {
         }
     }
 }
+// swiftlint:enable line_length

@@ -49,11 +49,13 @@ public struct VotingServiceConfig: Codable, Equatable, Sendable {
     public struct Proposal: Codable, Equatable, Sendable {
         public let id: Int
         public let title: String
+        public let description: String
         public let options: [Option]
 
-        public init(id: Int, title: String, options: [Option]) {
+        public init(id: Int, title: String, description: String, options: [Option]) {
             self.id = id
             self.title = title
+            self.description = description
             self.options = options
         }
 
@@ -201,7 +203,7 @@ extension VotingServiceConfig {
     }
 
     /// Canonical JSON form per ZIP 1244: proposals sorted by `id` ascending, options by `index` ascending,
-    /// no whitespace, keys in order `id`, `title`, `options` (and `index`, `label` for each option).
+    /// no whitespace, keys in order `id`, `title`, `description`, `options` (and `index`, `label` for each option).
     public static func canonicalProposalsJSON(_ proposals: [Proposal]) -> String {
         let sortedProposals = proposals.sorted { $0.id < $1.id }
         let parts = sortedProposals.map { proposal -> String in
@@ -209,7 +211,7 @@ extension VotingServiceConfig {
             let optionParts = sortedOptions.map { option -> String in
                 "{\"index\":\(option.index),\"label\":\(jsonEncodedString(option.label))}"
             }
-            return "{\"id\":\(proposal.id),\"title\":\(jsonEncodedString(proposal.title)),\"options\":[\(optionParts.joined(separator: ","))]}"
+            return "{\"id\":\(proposal.id),\"title\":\(jsonEncodedString(proposal.title)),\"description\":\(jsonEncodedString(proposal.description)),\"options\":[\(optionParts.joined(separator: ","))]}"
         }
         return "[\(parts.joined(separator: ","))]"
     }
