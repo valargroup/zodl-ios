@@ -116,9 +116,9 @@ struct ConfirmSubmissionView: View {
             Divider()
 
             if isIdle {
-                detailRow(label: "Amount", value: "0.00000001 ZEC")
+                detailRow(label: "Amount", value: "0 ZEC")
                 Divider()
-                detailRow(label: "Fee", value: "0.0001 ZEC")
+                detailRow(label: "Fee", value: "0 ZEC")
                 Divider()
             } else {
                 detailRow(label: "Voting power", value: "\(store.votingWeightZECString) ZEC")
