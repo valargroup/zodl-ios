@@ -95,7 +95,8 @@ func voteOptionColor(for option: VoteOption, total: Int, colorScheme: ColorSchem
         Design.Utility.WarningYellow._500.color(colorScheme),
         Design.Utility.Indigo._500.color(colorScheme),
         Design.Utility.Brand._500.color(colorScheme),
-        Design.Utility.Gray._500.color(colorScheme)
+        Design.Utility.Gray._500.color(colorScheme),
+        Design.Utility.Indigo._700.color(colorScheme)
     ]
     return palette[Int(option.index) % palette.count]
 }
