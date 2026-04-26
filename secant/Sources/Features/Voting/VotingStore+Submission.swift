@@ -80,12 +80,15 @@ extension Voting {
             let network = zcashSDKEnvironment.network
             let networkId: UInt32 = network.networkType == .mainnet ? 0 : 1
             guard
-                let chainNodeUrl = state.serviceConfig?.voteServers.first?.url,
-                let pirServerUrl = state.serviceConfig?.pirEndpoints.first?.url
+                let serviceConfig = state.serviceConfig,
+                let chainNodeUrl = serviceConfig.voteServers.first?.url,
+                !serviceConfig.pirEndpoints.isEmpty
             else {
-                votingLogger.error("serviceConfig unexpectedly nil during vote submission; aborting")
+                votingLogger.error("serviceConfig unexpectedly nil/empty during vote submission; aborting")
                 return .none
             }
+            let pirEndpointURLs = serviceConfig.pirEndpoints.map(\.url)
+            let expectedSnapshotHeight = serviceConfig.snapshotHeight
             let bundleCount = state.bundleCount
             let singleShare = state.activeSession?.isLastMoment ?? false
             let proposals = state.votingRound.proposals
@@ -134,7 +137,8 @@ extension Voting {
                             networkId: networkId,
                             accountIndex: 0,
                             roundName: roundName,
-                            pirServerUrl: pirServerUrl,
+                            pirEndpoints: pirEndpointURLs,
+                            expectedSnapshotHeight: expectedSnapshotHeight,
                             votingCrypto: votingCrypto,
                             votingAPI: votingAPI,
                             send: send

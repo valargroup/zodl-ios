@@ -362,10 +362,12 @@ extension Voting {
             // serviceConfig is guaranteed loaded by the time the user reaches any voting
             // pipeline: the .configError gate in .initialize/.allRoundsLoaded blocks entry
             // to the voting screens when config is missing. The guard is defense-in-depth.
-            guard let pirServerUrl = state.serviceConfig?.pirEndpoints.first?.url else {
-                votingLogger.error("serviceConfig unexpectedly nil in startActiveRoundPipeline; aborting")
+            guard let serviceConfig = state.serviceConfig, !serviceConfig.pirEndpoints.isEmpty else {
+                votingLogger.error("serviceConfig unexpectedly nil/empty in startActiveRoundPipeline; aborting")
                 return .none
             }
+            let pirEndpointURLs = serviceConfig.pirEndpoints.map(\.url)
+            let expectedSnapshotHeight = serviceConfig.snapshotHeight
             let keystoneBundleIndex = state.currentKeystoneBundleIndex
             let bundleCount = state.bundleCount
             return .merge(
@@ -433,7 +435,8 @@ extension Voting {
                             networkId: networkId,
                             accountIndex: accountIndex,
                             roundName: roundName,
-                            pirServerUrl: pirServerUrl,
+                            pirEndpoints: pirEndpointURLs,
+                            expectedSnapshotHeight: expectedSnapshotHeight,
                             votingCrypto: votingCrypto,
                             votingAPI: votingAPI,
                             send: send
@@ -569,10 +572,12 @@ extension Voting {
             let network = zcashSDKEnvironment.network
             let networkId: UInt32 = network.networkType == .mainnet ? 0 : 1
             let accountIndex: UInt32 = state.selectedWalletAccount.flatMap(\.zip32AccountIndex).map { UInt32($0.index) } ?? 0
-            guard let pirServerUrl = state.serviceConfig?.pirEndpoints.first?.url else {
-                votingLogger.error("serviceConfig unexpectedly nil during delegation proof; aborting")
+            guard let serviceConfig = state.serviceConfig, !serviceConfig.pirEndpoints.isEmpty else {
+                votingLogger.error("serviceConfig unexpectedly nil/empty during delegation proof; aborting")
                 return .none
             }
+            let pirEndpointURLs = serviceConfig.pirEndpoints.map(\.url)
+            let expectedSnapshotHeight = serviceConfig.snapshotHeight
             let storedSignatures = state.keystoneBundleSignatures
             let signedCount = storedSignatures.count
 
@@ -610,7 +615,8 @@ extension Voting {
                             hotkeySeed,
                             networkId,
                             accountIndex,
-                            pirServerUrl
+                            pirEndpointURLs,
+                            expectedSnapshotHeight
                         ) {
                             switch event {
                             case .progress(let progress):
@@ -819,6 +825,10 @@ extension Voting {
 
     /// Run the non-Keystone delegation pipeline (ZKP #1) for all bundles.
     /// Called inline from submitAllDrafts before the vote pipeline.
+    /// The SDK selects a fresh PIR endpoint from `pirEndpoints` per bundle (see
+    /// `VotingCryptoClient.buildAndProveDelegation`); pass the entire configured
+    /// list and the round's `expectedSnapshotHeight` so stale servers are
+    /// skipped without a hard fallback.
     static func runDelegationPipeline(
         roundId: String,
         cachedNotes: [NoteInfo],
@@ -827,7 +837,8 @@ extension Voting {
         networkId: UInt32,
         accountIndex: UInt32,
         roundName: String,
-        pirServerUrl: String,
+        pirEndpoints: [String],
+        expectedSnapshotHeight: UInt64,
         votingCrypto: VotingCryptoClient,
         votingAPI: VotingAPIClient,
         send: Send<Action>
@@ -857,7 +868,8 @@ extension Voting {
 
             for try await event in votingCrypto.buildAndProveDelegation(
                 roundId, bundleIndex, bundleNotes,
-                senderSeed, hotkeySeed, networkId, accountIndex, pirServerUrl
+                senderSeed, hotkeySeed, networkId, accountIndex,
+                pirEndpoints, expectedSnapshotHeight
             ) {
                 switch event {
                 case .progress(let progress):
