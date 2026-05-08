@@ -13,6 +13,11 @@ struct VotingSheetContent: View {
         case secondary
     }
 
+    enum VisualStyle {
+        case standard
+        case unverifiedWarning
+    }
+
     struct ButtonConfig {
         let title: String
         let style: ButtonStyle
@@ -25,9 +30,61 @@ struct VotingSheetContent: View {
     let message: String
     let primary: ButtonConfig
     let secondary: ButtonConfig?
+    let visualStyle: VisualStyle
+
+    init(
+        iconSystemName: String,
+        iconStyle: Colorable,
+        title: String,
+        message: String,
+        primary: ButtonConfig,
+        secondary: ButtonConfig?,
+        visualStyle: VisualStyle = .standard
+    ) {
+        self.iconSystemName = iconSystemName
+        self.iconStyle = iconStyle
+        self.title = title
+        self.message = message
+        self.primary = primary
+        self.secondary = secondary
+        self.visualStyle = visualStyle
+    }
 
     var body: some View {
         VStack(spacing: 0) {
+            iconView
+                .padding(.top, iconTopPadding)
+                .padding(.bottom, iconBottomPadding)
+
+            Text(title)
+                .zFont(.semiBold, size: titleFontSize, style: Design.Text.primary)
+                .tracking(titleTracking)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, titleBottomPadding)
+
+            Text(message)
+                .zFont(size: 14, style: messageTextStyle)
+                .tracking(messageTracking)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, messageHorizontalPadding)
+                .padding(.bottom, messageBottomPadding)
+
+            VStack(spacing: 12) {
+                if let secondary {
+                    button(secondary)
+                }
+                button(primary)
+            }
+            .padding(.bottom, buttonBottomPadding)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var iconView: some View {
+        switch visualStyle {
+        case .standard:
             ZStack {
                 Circle()
                     .fill(iconStyle.color(colorScheme).opacity(0.1))
@@ -36,30 +93,105 @@ struct VotingSheetContent: View {
                     .font(.system(size: 24, weight: .medium))
                     .foregroundStyle(iconStyle.color(colorScheme).opacity(0.8))
             }
-            .padding(.top, 16)
-            .padding(.bottom, 16)
-
-            Text(title)
-                .zFont(.semiBold, size: 22, style: Design.Text.primary)
-                .multilineTextAlignment(.center)
-                .padding(.bottom, 8)
-
-            Text(message)
-                .zFont(size: 14, style: Design.Text.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
-
-            VStack(spacing: 12) {
-                if let secondary {
-                    button(secondary)
-                }
-                button(primary)
+        case .unverifiedWarning:
+            ZStack {
+                Circle()
+                    .fill(Design.Surfaces.bgPrimary.color(colorScheme))
+                    .frame(width: 44, height: 44)
+                Asset.Assets.Icons.alertCircle.image
+                    .zImage(size: 20, style: Design.Utility.ErrorRed._500)
             }
-            .padding(.bottom, Design.Spacing.sheetBottomSpace)
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    private var iconTopPadding: CGFloat {
+        switch visualStyle {
+        case .standard:
+            return 16
+        case .unverifiedWarning:
+            return 8
+        }
+    }
+
+    private var iconBottomPadding: CGFloat {
+        switch visualStyle {
+        case .standard:
+            return 16
+        case .unverifiedWarning:
+            return 12
+        }
+    }
+
+    private var titleFontSize: CGFloat {
+        switch visualStyle {
+        case .standard:
+            return 22
+        case .unverifiedWarning:
+            return 20
+        }
+    }
+
+    private var titleTracking: CGFloat {
+        switch visualStyle {
+        case .standard:
+            return 0
+        case .unverifiedWarning:
+            return -0.32
+        }
+    }
+
+    private var titleBottomPadding: CGFloat {
+        switch visualStyle {
+        case .standard:
+            return 8
+        case .unverifiedWarning:
+            return 4
+        }
+    }
+
+    private var messageTextStyle: Design.Text {
+        switch visualStyle {
+        case .standard:
+            return .secondary
+        case .unverifiedWarning:
+            return .tertiary
+        }
+    }
+
+    private var messageTracking: CGFloat {
+        switch visualStyle {
+        case .standard:
+            return 0
+        case .unverifiedWarning:
+            return -0.224
+        }
+    }
+
+    private var messageHorizontalPadding: CGFloat {
+        switch visualStyle {
+        case .standard:
+            return 24
+        case .unverifiedWarning:
+            return 0
+        }
+    }
+
+    private var messageBottomPadding: CGFloat {
+        switch visualStyle {
+        case .standard:
+            return 24
+        case .unverifiedWarning:
+            return 32
+        }
+    }
+
+    private var buttonBottomPadding: CGFloat {
+        switch visualStyle {
+        case .standard:
+            return Design.Spacing.sheetBottomSpace
+        case .unverifiedWarning:
+            return 32
+        }
     }
 
     @ViewBuilder
@@ -84,6 +216,7 @@ extension View {
         message: String,
         primary: VotingSheetContent.ButtonConfig,
         secondary: VotingSheetContent.ButtonConfig? = nil,
+        visualStyle: VotingSheetContent.VisualStyle = .standard,
         onDismiss: (() -> Void)? = nil
     ) -> some View {
         zashiSheet(isPresented: isPresented, onDismiss: onDismiss) {
@@ -93,7 +226,8 @@ extension View {
                 title: title,
                 message: message,
                 primary: primary,
-                secondary: secondary
+                secondary: secondary,
+                visualStyle: visualStyle
             )
         }
     }
