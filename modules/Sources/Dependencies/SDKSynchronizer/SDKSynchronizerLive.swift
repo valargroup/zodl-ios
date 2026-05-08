@@ -394,6 +394,8 @@ extension SDKSynchronizerClient {
         logPrefix: String,
         userStoredPreferences: UserPreferencesStorageClient,
         zcashSDKEnvironment: ZcashSDKEnvironment,
+        graceDelay: Duration = .seconds(5),
+        responseTimeout: Duration = .seconds(30),
         submit: @escaping (Data, LightWalletEndpoint) async throws -> Void
     ) async -> CreateProposedTransactionsResult {
         guard !transactions.isEmpty else {
@@ -425,6 +427,8 @@ extension SDKSynchronizerClient {
                 rawTx: rawTx,
                 endpoints: endpoints,
                 logPrefix: logPrefix,
+                graceDelay: graceDelay,
+                responseTimeout: responseTimeout,
                 submit: submit
             )
 
@@ -471,6 +475,8 @@ extension SDKSynchronizerClient {
         rawTx: Data,
         endpoints: [LightWalletEndpoint],
         logPrefix: String,
+        graceDelay: Duration = .seconds(5),
+        responseTimeout: Duration = .seconds(30),
         submit: @escaping (Data, LightWalletEndpoint) async throws -> Void
     ) async -> String? {
         guard !endpoints.isEmpty else { return nil }
@@ -498,7 +504,7 @@ extension SDKSynchronizerClient {
 
                     group.addTask {
                         do {
-                            try await Task.sleep(for: .seconds(30))
+                            try await Task.sleep(for: responseTimeout)
                             LoggerProxy.error("\(logPrefix) Timed out waiting for any server to respond.")
                             return .timedOut
                         } catch {
@@ -514,7 +520,7 @@ extension SDKSynchronizerClient {
                                 hasResumed = true
                                 continuation.resume(returning: winner)
                                 group.addTask {
-                                    try? await Task.sleep(for: .seconds(5))
+                                    try? await Task.sleep(for: graceDelay)
                                     return .graceExpired
                                 }
                             }
