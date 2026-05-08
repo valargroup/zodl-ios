@@ -79,6 +79,7 @@ struct VotingSheetContent: View {
             .padding(.bottom, buttonBottomPadding)
         }
         .frame(maxWidth: .infinity)
+        .background(sheetBackgroundColor)
     }
 
     @ViewBuilder
@@ -191,6 +192,15 @@ struct VotingSheetContent: View {
             return Design.Spacing.sheetBottomSpace
         case .unverifiedWarning:
             return 32
+        }
+    }
+
+    private var sheetBackgroundColor: Color {
+        switch visualStyle {
+        case .standard:
+            return .clear
+        case .unverifiedWarning:
+            return Design.Surfaces.bgSecondary.color(colorScheme)
         }
     }
 
