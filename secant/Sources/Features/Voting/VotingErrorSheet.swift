@@ -8,6 +8,12 @@ import SwiftUI
 struct VotingSheetContent: View {
     @Environment(\.colorScheme) var colorScheme
 
+    private static let unverifiedWarningSheetBackground = Color(
+        red: 245.0 / 255.0,
+        green: 245.0 / 255.0,
+        blue: 245.0 / 255.0
+    ).opacity(0.96)
+
     enum ButtonStyle {
         case primary
         case secondary
@@ -67,6 +73,7 @@ struct VotingSheetContent: View {
                 .tracking(messageTracking)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: messageMaxWidth)
                 .padding(.horizontal, messageHorizontalPadding)
                 .padding(.bottom, messageBottomPadding)
 
@@ -79,6 +86,7 @@ struct VotingSheetContent: View {
             .padding(.bottom, buttonBottomPadding)
         }
         .frame(maxWidth: .infinity)
+        .background(sheetBackgroundColor)
     }
 
     @ViewBuilder
@@ -109,7 +117,7 @@ struct VotingSheetContent: View {
         case .standard:
             return 16
         case .unverifiedWarning:
-            return 8
+            return 24
         }
     }
 
@@ -176,6 +184,15 @@ struct VotingSheetContent: View {
         }
     }
 
+    private var messageMaxWidth: CGFloat? {
+        switch visualStyle {
+        case .standard:
+            return nil
+        case .unverifiedWarning:
+            return 264
+        }
+    }
+
     private var messageBottomPadding: CGFloat {
         switch visualStyle {
         case .standard:
@@ -191,6 +208,15 @@ struct VotingSheetContent: View {
             return Design.Spacing.sheetBottomSpace
         case .unverifiedWarning:
             return 32
+        }
+    }
+
+    private var sheetBackgroundColor: Color {
+        switch visualStyle {
+        case .standard:
+            return .clear
+        case .unverifiedWarning:
+            return Self.unverifiedWarningSheetBackground
         }
     }
 
