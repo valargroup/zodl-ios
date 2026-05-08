@@ -8,6 +8,12 @@ import SwiftUI
 struct VotingSheetContent: View {
     @Environment(\.colorScheme) var colorScheme
 
+    private static let unverifiedWarningSheetBackground = Color(
+        red: 245.0 / 255.0,
+        green: 245.0 / 255.0,
+        blue: 245.0 / 255.0
+    ).opacity(0.96)
+
     enum ButtonStyle {
         case primary
         case secondary
@@ -200,7 +206,7 @@ struct VotingSheetContent: View {
         case .standard:
             return .clear
         case .unverifiedWarning:
-            return Design.Surfaces.bgSecondary.color(colorScheme)
+            return Self.unverifiedWarningSheetBackground
         }
     }
 
