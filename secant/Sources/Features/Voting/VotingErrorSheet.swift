@@ -73,6 +73,7 @@ struct VotingSheetContent: View {
                 .tracking(messageTracking)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: messageMaxWidth)
                 .padding(.horizontal, messageHorizontalPadding)
                 .padding(.bottom, messageBottomPadding)
 
@@ -116,7 +117,7 @@ struct VotingSheetContent: View {
         case .standard:
             return 16
         case .unverifiedWarning:
-            return 8
+            return 24
         }
     }
 
@@ -180,6 +181,15 @@ struct VotingSheetContent: View {
             return 24
         case .unverifiedWarning:
             return 0
+        }
+    }
+
+    private var messageMaxWidth: CGFloat? {
+        switch visualStyle {
+        case .standard:
+            return nil
+        case .unverifiedWarning:
+            return 264
         }
     }
 
