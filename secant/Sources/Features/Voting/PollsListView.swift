@@ -304,12 +304,24 @@ struct PollsListView: View {
     private func dateLabel(for state: CardState, item: Voting.State.RoundListItem) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
-        let formatted = formatter.string(from: item.session.voteEndTime)
+        let session = item.session
+        let endFormatted = formatter.string(from: session.voteEndTime)
+
+        // "Feb 16 - Apr 1" range when ceremonyStart is populated.
+        // Falls back to the single-date "Closes/Closed" label when the start
+        // is the sentinel epoch default (older fixtures, missing API field) so
+        // the card still reads sensibly instead of showing "Jan 1 - Apr 1".
+        if session.ceremonyStart.timeIntervalSince1970 > 0,
+           session.ceremonyStart < session.voteEndTime {
+            let startFormatted = formatter.string(from: session.ceremonyStart)
+            return String(localizable: .coinVotePollsListDateRange(startFormatted, endFormatted))
+        }
+
         switch state {
         case .active, .voted:
-            return String(localizable: .coinVotePollsListDateCloses(formatted))
+            return String(localizable: .coinVotePollsListDateCloses(endFormatted))
         case .closed:
-            return String(localizable: .coinVotePollsListDateClosed(formatted))
+            return String(localizable: .coinVotePollsListDateClosed(endFormatted))
         }
     }
 
