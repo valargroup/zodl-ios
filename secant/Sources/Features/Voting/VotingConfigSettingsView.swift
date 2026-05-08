@@ -69,7 +69,7 @@ struct VotingConfigSettingsView: View {
                                         }
                                     }
                                     .tint(Color.clear)
-                                    .accessibilityLabel("Delete \(chain.name)")
+                                    .accessibilityLabel(String(localized: "Delete \(chain.name)"))
                                 }
                         }
 
@@ -153,7 +153,7 @@ struct VotingConfigSettingsView: View {
                     .zForegroundColor(Design.Text.tertiary)
                     .frame(width: 32, height: 32)
             }
-            .accessibilityLabel("Cancel")
+            .accessibilityLabel(String(localized: "Cancel"))
         }
     }
 
@@ -181,7 +181,7 @@ struct VotingConfigSettingsView: View {
             }
             .buttonStyle(.plain)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .accessibilityLabel("Default chain")
+            .accessibilityLabel(String(localized: "Default chain"))
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -200,7 +200,11 @@ struct VotingConfigSettingsView: View {
                         disclosureChevron(expanded: expandedDefaultChain)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(expandedDefaultChain ? "Hide full chain URL" : "Show full chain URL")
+                    .accessibilityLabel(
+                        expandedDefaultChain
+                            ? String(localized: "Hide full chain URL")
+                            : String(localized: "Show full chain URL")
+                    )
                 }
 
                 Text(pair.compact)
@@ -246,7 +250,7 @@ struct VotingConfigSettingsView: View {
                     .padding(.top, 2)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Select \(chain.name)")
+            .accessibilityLabel(String(localized: "Select \(chain.name)"))
             .accessibilityAddTraits(isSelected ? .isSelected : [])
 
             VStack(alignment: .leading, spacing: 0) {
@@ -281,8 +285,8 @@ struct VotingConfigSettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Edit \(chain.name)")
-                    .accessibilityHint("Opens fields to change the name and URL.")
+                    .accessibilityLabel(String(localized: "Edit \(chain.name)"))
+                    .accessibilityHint(String(localized: "Opens fields to change the name and URL."))
 
                     Button {
                         toggleExpandedChain(chain.id)
@@ -294,7 +298,11 @@ struct VotingConfigSettingsView: View {
                     .opacity(allowsCustomChainDisclosure ? 1 : 0.35)
                     .padding(.top, 10)
                     .padding(.trailing, 4)
-                    .accessibilityLabel(isExpanded ? "Hide full chain URL" : "Show full chain URL")
+                    .accessibilityLabel(
+                        isExpanded
+                            ? String(localized: "Hide full chain URL")
+                            : String(localized: "Show full chain URL")
+                    )
                 }
 
                 if isExpanded {
@@ -374,7 +382,7 @@ struct VotingConfigSettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(value)")
-        .accessibilityHint("Tap to copy to clipboard.")
+        .accessibilityHint(String(localized: "Tap to copy to clipboard."))
     }
 
     private func expandedDefaultExtras(fullChainURL: String) -> some View {
@@ -382,7 +390,7 @@ struct VotingConfigSettingsView: View {
             Divider()
                 .background(Design.Surfaces.strokeSecondary.color(colorScheme))
 
-            tapToCopyInputShape(title: "Name", value: "Default")
+            tapToCopyInputShape(title: String(localized: "Name"), value: String(localized: "Default"))
             tapToCopyInputShape(title: String(localized: "Configuration URL"), value: fullChainURL)
         }
         .padding(.top, 4)
@@ -393,7 +401,7 @@ struct VotingConfigSettingsView: View {
             Divider()
                 .background(Design.Surfaces.strokeSecondary.color(colorScheme))
 
-            tapToCopyInputShape(title: "Name", value: chain.name)
+            tapToCopyInputShape(title: String(localized: "Name"), value: chain.name)
             tapToCopyInputShape(title: String(localized: "Configuration URL"), value: fullURL)
         }
         .padding(.top, 4)
@@ -415,15 +423,15 @@ struct VotingConfigSettingsView: View {
 
             ZashiTextField(
                 text: editChainNameBinding,
-                placeholder: "Name",
-                title: "Name",
+                placeholder: String(localized: "Name"),
+                title: String(localized: "Name"),
                 error: nil
             )
 
             ZashiTextField(
                 text: editChainURLBinding,
-                placeholder: "Enter URL",
-                title: "URL",
+                placeholder: String(localized: "Enter URL"),
+                title: String(localized: "URL"),
                 error: validationError
             )
             .keyboardType(.URL)
@@ -443,15 +451,15 @@ struct VotingConfigSettingsView: View {
 
             ZashiTextField(
                 text: pendingNewChainNameBinding,
-                placeholder: "Name",
-                title: "Name",
+                placeholder: String(localized: "Name"),
+                title: String(localized: "Name"),
                 error: nil
             )
 
             ZashiTextField(
                 text: pendingNewChainURLBinding,
-                placeholder: "Enter URL",
-                title: "URL",
+                placeholder: String(localized: "Enter URL"),
+                title: String(localized: "URL"),
                 error: validationError
             )
             .keyboardType(.URL)
@@ -587,7 +595,7 @@ struct VotingConfigSettingsView: View {
     }
 
     private var saveTitle: String {
-        isValidating ? "Validating..." : "Save"
+        isValidating ? String(localized: "Validating...") : String(localized: "Save")
     }
 
     private var isValidating: Bool {

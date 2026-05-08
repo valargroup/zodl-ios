@@ -346,7 +346,7 @@ struct VotingConfigSettings {
         let trimmedName = state.editChainName.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedURL.isEmpty else {
-            state.validationStatus = .error("Enter a URL.")
+            state.validationStatus = .error(String(localized: "Enter a URL."))
             return .none
         }
 
@@ -417,7 +417,9 @@ struct VotingConfigSettings {
     }
 
     /// User-visible error when adding or switching a chain URL that matches Default or another custom entry.
-    private static let duplicateChainURLErrorMessage = "This chain URL is already added."
+    private static var duplicateChainURLErrorMessage: String {
+        String(localized: "This chain URL is already added.")
+    }
 
     /// True when `source` matches the bundled default pin (same URL and checksum semantics as `PinnedConfigSource`).
     private static func matchesBundledPinnedSource(_ source: PinnedConfigSource) -> Bool {
