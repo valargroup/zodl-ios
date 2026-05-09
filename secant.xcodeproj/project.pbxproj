@@ -9355,14 +9355,15 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		9E4841512F869F5E00D0649B /* XCLocalSwiftPackageReference "../zcash-swift-wallet-sdk" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../zcash-swift-wallet-sdk";
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCRemoteSwiftPackageReference section */
+		9E4841512F869F5E00D0649B /* XCRemoteSwiftPackageReference "zcash-swift-wallet-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/valargroup/zcash-swift-wallet-sdk.git";
+			requirement = {
+				kind = revision;
+				revision = 911c3eee22b3f5c408749c4febabeda824865468;
+			};
+		};
 		34AA77122F857DA300D244E2 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/pointfreeco/swift-composable-architecture";
