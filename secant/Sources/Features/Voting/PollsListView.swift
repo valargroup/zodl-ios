@@ -148,10 +148,6 @@ struct PollsListView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            // Action button (varies by state)
-            actionButton(for: state, item: item)
-                .padding(.top, 4)
         }
         .padding(Design.Spacing._xl)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -167,6 +163,23 @@ struct PollsListView: View {
         .shadow(color: Self.shadowSm, radius: 12, x: 0, y: 24)
         .shadow(color: Self.shadowSm, radius: 1.5, x: 0, y: 3)
         .shadow(color: Self.shadowSm, radius: 0.5, x: 0, y: 1)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            tapPollCard(for: item, state: state)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            Text(
+                pollCardAccessibilityLabel(
+                    for: item,
+                    state: state,
+                    votedCount: votedCount,
+                    totalProposals: totalProposals
+                )
+            )
+        )
+        .accessibilityHint(Text(pollCardAccessibilityHint(for: state)))
+        .accessibilityAddTraits(.isButton)
     }
 
     private static let shadowSm = Color(red: 35.0 / 255.0, green: 31.0 / 255.0, blue: 32.0 / 255.0).opacity(0.04)
@@ -325,23 +338,49 @@ struct PollsListView: View {
         }
     }
 
-    // MARK: - Action Button
+    // MARK: - Card Action
 
-    @ViewBuilder
-    private func actionButton(for state: CardState, item: Voting.State.RoundListItem) -> some View {
+    private func tapPollCard(for item: Voting.State.RoundListItem, state: CardState) {
         switch state {
         case .active:
-            ZashiButton(String(localizable: .coinVotePollsListEnterPoll), infinityWidth: false) {
-                store.send(.roundTapped(item.id))
-            }
+            store.send(.roundTapped(item.id))
         case .voted:
-            ZashiButton(String(localizable: .coinVotePollsListViewMyVotes), infinityWidth: false) {
-                store.send(.viewMyVotesTapped(roundId: item.id))
-            }
+            store.send(.viewMyVotesTapped(roundId: item.id))
         case .closed:
-            ZashiButton(String(localizable: .coinVoteCommonViewResults), type: .tertiary, infinityWidth: false) {
-                store.send(.roundTapped(item.id))
-            }
+            store.send(.roundTapped(item.id))
+        }
+    }
+
+    private func pollCardAccessibilityLabel(
+        for item: Voting.State.RoundListItem,
+        state: CardState,
+        votedCount: Int,
+        totalProposals: Int
+    ) -> String {
+        let status = pollStatusPillStyle(for: state).label
+        let date = dateLabel(for: state, item: item)
+
+        if totalProposals > 0 {
+            let progress = String(
+                localizable: .coinVotePollsListVotedCount(
+                    String(votedCount),
+                    String(totalProposals)
+                )
+            )
+            return "\(item.title), \(status), \(date), \(progress)"
+        }
+
+        return "\(item.title), \(status), \(date)"
+    }
+
+    private func pollCardAccessibilityHint(for state: CardState) -> String {
+        switch state {
+        case .active:
+            return String(localizable: .coinVotePollsListEnterPoll)
+        case .voted:
+            return String(localizable: .coinVotePollsListViewMyVotes)
+        case .closed:
+            return String(localizable: .coinVoteCommonViewResults)
         }
     }
 }
