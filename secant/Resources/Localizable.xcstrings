@@ -1804,7 +1804,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Submitting vote %@ of %@..."
+            "value" : "Submitting vote %@ of %@…"
           }
         }
       }

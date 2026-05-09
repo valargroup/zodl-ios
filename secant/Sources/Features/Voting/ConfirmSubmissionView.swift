@@ -329,7 +329,11 @@ struct ConfirmSubmissionView: View {
                 .background(Design.Surfaces.bgSecondary.color(colorScheme))
                 .clipShape(RoundedRectangle(cornerRadius: Design.Radius._xl))
 
-                ZashiButton(progressInfo.title) {}
+                let disabledButtonLabel = progressInfo.title
+                    .replacingOccurrences(of: "…", with: "")
+                    .replacingOccurrences(of: "...", with: "")
+
+                ZashiButton(disabledButtonLabel) {}
                     .disabled(true)
             }
 
