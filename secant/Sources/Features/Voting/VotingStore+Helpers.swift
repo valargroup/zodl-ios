@@ -1,5 +1,7 @@
 import Foundation
 import ComposableArchitecture
+import SQLite3
+@preconcurrency import ZcashLightClientKit
 
 // MARK: - Draft Persistence
 
@@ -116,6 +118,239 @@ struct BundleResult {
     let bundles: [[NoteInfo]]
     let eligibleWeight: UInt64
     let droppedCount: Int
+}
+
+enum VoteNoiseFeature {
+    static let bundleIdentifier = "co.valargroup.zodl.noise"
+    static let defaultTargetNoteValue: UInt64 = ballotDivisor
+    static let maxSplitOutputs = 200
+
+    static var isEnabled: Bool {
+        Bundle.main.bundleIdentifier == bundleIdentifier
+    }
+
+    static func zecString(_ zatoshi: UInt64) -> String {
+        let whole = zatoshi / UInt64(Zatoshi.Constants.oneZecInZatoshi)
+        let fractional = zatoshi % UInt64(Zatoshi.Constants.oneZecInZatoshi)
+        guard fractional > 0 else { return "\(whole)" }
+
+        let padded = String(format: "%08llu", fractional)
+        return "\(whole).\(padded.trimmingCharacters(in: CharacterSet(charactersIn: "0")))"
+    }
+
+    static func parseZatoshi(_ text: String) -> UInt64? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let parts = trimmed.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count <= 2,
+              let whole = UInt64(parts[0]),
+              whole <= UInt64.max / UInt64(Zatoshi.Constants.oneZecInZatoshi)
+        else {
+            return nil
+        }
+
+        var fractional: UInt64 = 0
+        if parts.count == 2 {
+            let fraction = parts[1]
+            guard fraction.count <= 8, fraction.allSatisfy(\.isNumber) else { return nil }
+            let padded = String(fraction).padding(toLength: 8, withPad: "0", startingAt: 0)
+            guard let parsedFractional = UInt64(padded) else { return nil }
+            fractional = parsedFractional
+        }
+
+        let zatoshi = whole * UInt64(Zatoshi.Constants.oneZecInZatoshi) + fractional
+        return zatoshi > 0 ? zatoshi : nil
+    }
+
+    static func splitReserve(total: UInt64, target: UInt64) -> UInt64 {
+        guard total > target, target > 1 else { return 0 }
+        let proportionalReserve = total / 1_000
+        let minimumReserve: UInt64 = 100_000
+        return min(target - 1, max(minimumReserve, proportionalReserve))
+    }
+
+    static func normalizeReserve(total: UInt64, target: UInt64) -> UInt64 {
+        guard total > 1 else { return 0 }
+        let proportionalReserve = total / 500
+        let minimumReserve: UInt64 = 100_000
+        let cappedByTarget = target > 1 ? min(target - 1, max(minimumReserve, proportionalReserve)) : minimumReserve
+        return min(total - 1, cappedByTarget)
+    }
+}
+
+enum VoteNoiseSettings {
+    private static let targetNoteValueKey = "voteNoise.targetNoteValueZatoshi"
+
+    static var targetNoteValue: UInt64 {
+        let stored = UserDefaults.standard.object(forKey: targetNoteValueKey) as? NSNumber
+        return stored?.uint64Value ?? VoteNoiseFeature.defaultTargetNoteValue
+    }
+
+    static var targetNoteValueText: String {
+        VoteNoiseFeature.zecString(targetNoteValue)
+    }
+
+    static func setTargetNoteValue(_ value: UInt64) {
+        UserDefaults.standard.set(NSNumber(value: value), forKey: targetNoteValueKey)
+    }
+}
+
+enum VotingBundlePolicy {
+    case standard
+    case zodlNoise
+
+    func bundle(_ notes: [NoteInfo]) -> BundleResult {
+        switch self {
+        case .standard:
+            return notes.smartBundles()
+        case .zodlNoise:
+            let eligibleNotes = notes
+                .filter { $0.value == ballotDivisor }
+                .sorted { $0.position < $1.position }
+            let bundles = eligibleNotes.map { [$0] }
+            return BundleResult(
+                bundles: bundles,
+                eligibleWeight: UInt64(bundles.count) * ballotDivisor,
+                droppedCount: notes.count - eligibleNotes.count
+            )
+        }
+    }
+}
+
+func votingBundlePolicy() -> VotingBundlePolicy {
+    VoteNoiseFeature.isEnabled ? .zodlNoise : .standard
+}
+
+enum VotingNoiseBundleStoreError: LocalizedError {
+    case openDatabase(String)
+    case prepare(String)
+    case bind(String)
+    case step(String)
+    case bundleCountOverflow
+
+    var errorDescription: String? {
+        switch self {
+        case .openDatabase(let message):
+            return "Couldn't open voting database: \(message)"
+        case .prepare(let message):
+            return "Couldn't prepare voting database statement: \(message)"
+        case .bind(let message):
+            return "Couldn't bind voting database statement: \(message)"
+        case .step(let message):
+            return "Couldn't update voting database: \(message)"
+        case .bundleCountOverflow:
+            return "Too many note bundles to prepare."
+        }
+    }
+}
+
+enum VotingNoiseBundleStore {
+    private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+    static func replaceBundles(
+        databasePath: String,
+        roundId: String,
+        walletId: String,
+        bundles: [[NoteInfo]]
+    ) throws -> UInt32 {
+        guard let count = UInt32(exactly: bundles.count) else {
+            throw VotingNoiseBundleStoreError.bundleCountOverflow
+        }
+
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(databasePath, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
+              let db
+        else {
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
+            throw VotingNoiseBundleStoreError.openDatabase(message)
+        }
+        defer { sqlite3_close(db) }
+
+        do {
+            try execute(db, sql: "BEGIN IMMEDIATE")
+            try execute(
+                db,
+                sql: "DELETE FROM bundles WHERE round_id = ? AND wallet_id = ?",
+                bind: { statement in
+                    try bindText(statement, index: 1, value: roundId)
+                    try bindText(statement, index: 2, value: walletId)
+                }
+            )
+
+            for (index, bundle) in bundles.enumerated() {
+                let positionsBlob = notePositionsBlob(bundle)
+                try execute(
+                    db,
+                    sql: "INSERT INTO bundles (round_id, wallet_id, bundle_index, note_positions_blob) VALUES (?, ?, ?, ?)",
+                    bind: { statement in
+                        try bindText(statement, index: 1, value: roundId)
+                        try bindText(statement, index: 2, value: walletId)
+                        try bindInt(statement, index: 3, value: Int32(index))
+                        try bindBlob(statement, index: 4, value: positionsBlob)
+                    }
+                )
+            }
+
+            try execute(db, sql: "COMMIT")
+            return count
+        } catch {
+            try? execute(db, sql: "ROLLBACK")
+            throw error
+        }
+    }
+
+    private static func notePositionsBlob(_ notes: [NoteInfo]) -> Data {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(notes.count * MemoryLayout<UInt64>.size)
+        for note in notes {
+            var littleEndianPosition = note.position.littleEndian
+            withUnsafeBytes(of: &littleEndianPosition) { rawBuffer in
+                bytes.append(contentsOf: rawBuffer)
+            }
+        }
+        return Data(bytes)
+    }
+
+    private static func execute(
+        _ db: OpaquePointer,
+        sql: String,
+        bind: (OpaquePointer) throws -> Void = { _ in }
+    ) throws {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement
+        else {
+            throw VotingNoiseBundleStoreError.prepare(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+
+        try bind(statement)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw VotingNoiseBundleStoreError.step(String(cString: sqlite3_errmsg(db)))
+        }
+    }
+
+    private static func bindText(_ statement: OpaquePointer, index: Int32, value: String) throws {
+        guard sqlite3_bind_text(statement, index, value, -1, transient) == SQLITE_OK else {
+            throw VotingNoiseBundleStoreError.bind("text at index \(index)")
+        }
+    }
+
+    private static func bindInt(_ statement: OpaquePointer, index: Int32, value: Int32) throws {
+        guard sqlite3_bind_int(statement, index, value) == SQLITE_OK else {
+            throw VotingNoiseBundleStoreError.bind("integer at index \(index)")
+        }
+    }
+
+    private static func bindBlob(_ statement: OpaquePointer, index: Int32, value: Data) throws {
+        let result = value.withUnsafeBytes { rawBuffer in
+            sqlite3_bind_blob(statement, index, rawBuffer.baseAddress, Int32(value.count), transient)
+        }
+        guard result == SQLITE_OK else {
+            throw VotingNoiseBundleStoreError.bind("blob at index \(index)")
+        }
+    }
 }
 
 extension Array where Element == NoteInfo {

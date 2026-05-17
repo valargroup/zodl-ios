@@ -140,6 +140,12 @@ extension Voting {
             }
             return .none
 
+        case .openNoisePrep:
+            if state.currentScreen != .noisePrep {
+                state.screenStack.append(.noisePrep)
+            }
+            return .send(.noisePrepRefreshTapped)
+
         case .configSettings(.delegate(.dismiss)),
             .configSettings(.delegate(.saved)):
             dismissConfigSettings(&state)

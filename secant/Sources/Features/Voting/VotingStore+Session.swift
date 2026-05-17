@@ -271,13 +271,13 @@ extension Voting {
                 state.screenStack = [.ineligible]
                 return .none
             }
-            // Use smart bundling to determine eligible weight (excluding dust bundles)
-            let bundleResult = notes.smartBundles()
+            // Use the active bundle policy to determine eligible weight.
+            let bundleResult = votingBundlePolicy().bundle(notes)
             let eligibleWeight = bundleResult.eligibleWeight
             state.votingWeight = eligibleWeight
             if bundleResult.droppedCount > 0 {
                 let dropped = bundleResult.droppedCount
-                votingLogger.info("Smart bundling: dropped \(dropped) notes in sub-threshold bundles (eligible: \(eligibleWeight) of \(weight) total)")
+                votingLogger.info("Vote bundling: dropped \(dropped) notes outside the active bundle policy (eligible: \(eligibleWeight) of \(weight) total)")
             }
             if eligibleWeight < ballotDivisor {
                 state.ineligibilityReason = .balanceTooLow

@@ -62,6 +62,7 @@ struct SDKSynchronizerClient {
     
     // Proposals
     var proposeTransfer: (AccountUUID, Recipient, Zatoshi, Memo?) async throws -> Proposal
+    var proposeFulfillingPaymentURI: (String, AccountUUID) async throws -> Proposal
     var createProposedTransactions: (Proposal, UnifiedSpendingKey) async throws -> CreateProposedTransactionsResult
     var proposeShielding: (AccountUUID, Zatoshi, Memo, TransparentAddress?) async throws -> Proposal?
     
@@ -107,4 +108,3 @@ struct SDKSynchronizerClient {
 
     var getTreeState: @Sendable (_ height: UInt64) async throws -> Data
 }
-

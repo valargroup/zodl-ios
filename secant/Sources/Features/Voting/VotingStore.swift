@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import ComposableArchitecture
 @preconcurrency import ZcashLightClientKit
+import ZcashPaymentURI
 import os
 
 let votingLogger = Logger(subsystem: "co.zodl.voting", category: "VotingStore")
@@ -118,6 +119,8 @@ struct Voting {
     var backgroundTask
     @Dependency(\.databaseFiles)
     var databaseFiles
+    @Dependency(\.derivationTool)
+    var derivationTool
     @Dependency(\.keystoneHandler)
     var keystoneHandler
     @Dependency(\.mnemonic)
@@ -155,6 +158,59 @@ struct Voting {
             case configError(String)
             case configSettings
             case walletSyncing
+            case noisePrep
+        }
+
+        enum NoisePrepOperationKind: String, Equatable {
+            case split
+            case normalize
+
+            var title: String {
+                switch self {
+                case .split: return String(localized: "Split notes")
+                case .normalize: return String(localized: "Normalize notes")
+                }
+            }
+        }
+
+        struct NoisePrepPendingOperation: Equatable {
+            let kind: NoisePrepOperationKind
+            let proposal: Proposal
+            let summary: String
+            let fee: Zatoshi
+        }
+
+        struct NoisePrepState: Equatable {
+            var notes: [NoteInfo] = []
+            var snapshotHeight: UInt64?
+            var isLoading: Bool = false
+            var isPreparingProposal: Bool = false
+            var isSubmitting: Bool = false
+            var targetNoteValueText: String = VoteNoiseSettings.targetNoteValueText
+            var errorMessage: String?
+            var statusMessage: String?
+            var pendingOperation: NoisePrepPendingOperation?
+
+            var totalValue: UInt64 {
+                notes.reduce(UInt64(0)) { $0 + $1.value }
+            }
+
+            var exactBallotNoteCount: Int {
+                notes.filter { $0.value == ballotDivisor }.count
+            }
+
+            var targetNoteValue: UInt64? {
+                VoteNoiseFeature.parseZatoshi(targetNoteValueText)
+            }
+
+            var targetNoteCount: Int {
+                guard let targetNoteValue else { return 0 }
+                return notes.filter { $0.value == targetNoteValue }.count
+            }
+
+            var displayTargetNoteValue: UInt64 {
+                targetNoteValue ?? VoteNoiseSettings.targetNoteValue
+            }
         }
 
         struct RoundListItem: Equatable, Identifiable {
@@ -244,6 +300,7 @@ struct Voting {
         var walletId: String
         var roundId: String
         var activeSession: VotingSession?
+        var noisePrep: NoisePrepState = .init()
 
         /// All rounds fetched from the server, sorted by snapshot height and numbered.
         var allRounds: [RoundListItem] = []
@@ -288,7 +345,7 @@ struct Voting {
         /// Cached wallet notes from the snapshot query, used by delegation proof.
         var walletNotes: [NoteInfo] = []
 
-        /// Number of note bundles (groups of up to 5 notes). Set by setupBundles.
+        /// Number of note bundles prepared for the active policy.
         var bundleCount: UInt32 = 0
 
         /// Hotkey address derived from keychain mnemonic, shown on delegation signing screen.
@@ -311,6 +368,10 @@ struct Voting {
 
         var isOnDefaultConfig: Bool {
             votingConfigOverrideURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        var bundleResult: BundleResult {
+            votingBundlePolicy().bundle(walletNotes)
         }
 
         /// Persisted record of when the current round finished submitting,
@@ -494,7 +555,7 @@ struct Voting {
         /// Quantized ZEC value for the current Keystone bundle.
         var currentBundleZECString: String? {
             guard isKeystoneUser, bundleCount > 1 else { return nil }
-            let bundles = walletNotes.smartBundles().bundles
+            let bundles = bundleResult.bundles
             let idx = Int(currentKeystoneBundleIndex)
             guard idx < bundles.count else { return nil }
             let raw = bundles[idx].reduce(UInt64(0)) { $0 + $1.value }
@@ -504,7 +565,7 @@ struct Voting {
 
         /// Quantized ZEC weight already signed across collected Keystone bundle signatures.
         var signedBundlesZECString: String {
-            let bundles = walletNotes.smartBundles().bundles
+            let bundles = bundleResult.bundles
             let signedWeight = keystoneBundleSignatures.indices.reduce(UInt64(0)) { total, i in
                 guard i < bundles.count else { return total }
                 let raw = bundles[i].reduce(UInt64(0)) { $0 + $1.value }
@@ -515,7 +576,7 @@ struct Voting {
 
         /// Quantized ZEC weight in unsigned bundles that would be given up by skipping.
         var skippedBundlesZECString: String {
-            let bundles = walletNotes.smartBundles().bundles
+            let bundles = bundleResult.bundles
             let signedCount = keystoneBundleSignatures.count
             let skippedWeight = (signedCount..<bundles.count).reduce(UInt64(0)) { total, i in
                 let raw = bundles[i].reduce(UInt64(0)) { $0 + $1.value }
@@ -527,7 +588,7 @@ struct Voting {
         /// Raw ZEC weight for the memo — per-bundle for Keystone multi-bundle, total otherwise.
         var memoWeightZatoshi: UInt64 {
             if isKeystoneUser, bundleCount > 1 {
-                let bundles = walletNotes.smartBundles().bundles
+                let bundles = bundleResult.bundles
                 let idx = Int(currentKeystoneBundleIndex)
                 if idx < bundles.count {
                     return bundles[idx].reduce(UInt64(0)) { $0 + $1.value }
@@ -851,6 +912,20 @@ struct Voting {
         case retryBatchSubmission
         case dismissBatchResults
 
+        // Zodl Noise note prep
+        case openNoisePrep
+        case noisePrepRefreshTapped
+        case noisePrepNotesLoaded([NoteInfo], UInt64)
+        case noisePrepFailed(String)
+        case noisePrepTargetNoteValueChanged(String)
+        case noisePrepResetTargetNoteValue
+        case noisePrepSplitTapped
+        case noisePrepNormalizeTapped
+        case noisePrepProposalPrepared(State.NoisePrepPendingOperation)
+        case noisePrepConfirmProposalTapped
+        case noisePrepCancelProposalTapped
+        case noisePrepSubmitCompleted(String)
+
         // Complete
         case doneTapped
     }
@@ -864,6 +939,7 @@ struct Voting {
             case .dismissFlow,
                 .goBack,
                 .howToVoteContinueTapped,
+                .openNoisePrep,
                 .openConfigSettings,
                 .configSettings,
                 .viewMyVotesTapped,
@@ -1009,6 +1085,20 @@ struct Voting {
                 .retryBatchSubmission,
                 .dismissBatchResults:
                 return reduceSubmission(&state, action)
+
+            // MARK: - Zodl Noise
+            case .noisePrepRefreshTapped,
+                .noisePrepNotesLoaded,
+                .noisePrepFailed,
+                .noisePrepTargetNoteValueChanged,
+                .noisePrepResetTargetNoteValue,
+                .noisePrepSplitTapped,
+                .noisePrepNormalizeTapped,
+                .noisePrepProposalPrepared,
+                .noisePrepConfirmProposalTapped,
+                .noisePrepCancelProposalTapped,
+                .noisePrepSubmitCompleted:
+                return reduceNoisePrep(&state, action)
             }
         }
         .ifLet(\.configSettings, action: \.configSettings) {
@@ -1052,5 +1142,267 @@ struct Voting {
             }
             state.screenStack.append(.proposalList)
         }
+    }
+
+    func reduceNoisePrep(_ state: inout State, _ action: Action) -> Effect<Action> {
+        switch action {
+        case .noisePrepRefreshTapped:
+            guard let account = state.selectedWalletAccount else {
+                state.noisePrep.errorMessage = String(localized: "No wallet account is selected.")
+                return .none
+            }
+            guard account.vendor != .keystone else {
+                state.noisePrep.errorMessage = String(localized: "Zodl Noise supports seed accounts only.")
+                return .none
+            }
+
+            state.noisePrep.isLoading = true
+            state.noisePrep.errorMessage = nil
+            state.noisePrep.statusMessage = nil
+            state.noisePrep.pendingOperation = nil
+
+            let requestedSnapshotHeight = noisePrepSnapshotHeight(state)
+            let accountUUID = account.id.id
+            let network = zcashSDKEnvironment.network
+            let walletDbPath = databaseFiles.dataDbURLFor(network).path
+            let networkId = network.networkType.votingRustNetworkId
+            return .run { [sdkSynchronizer, votingCrypto] send in
+                var snapshotHeight = requestedSnapshotHeight
+                if snapshotHeight == nil {
+                    let latestHeight = UInt64(sdkSynchronizer.latestState().fullyScannedHeight)
+                    snapshotHeight = latestHeight > 0 ? latestHeight : nil
+                }
+                guard let snapshotHeight else {
+                    await send(.noisePrepFailed(String(localized: "The wallet has not scanned far enough to inspect notes yet.")))
+                    return
+                }
+
+                let notes = try await votingCrypto.getWalletNotes(
+                    walletDbPath,
+                    snapshotHeight,
+                    networkId,
+                    accountUUID
+                )
+                await send(.noisePrepNotesLoaded(notes, snapshotHeight))
+            } catch: { error, send in
+                await send(.noisePrepFailed(error.localizedDescription))
+            }
+
+        case let .noisePrepNotesLoaded(notes, snapshotHeight):
+            state.noisePrep.notes = notes
+            state.noisePrep.snapshotHeight = snapshotHeight
+            state.noisePrep.isLoading = false
+            state.noisePrep.errorMessage = nil
+            state.noisePrep.statusMessage = "Loaded \(notes.count) notes at height \(snapshotHeight)."
+            return .none
+
+        case let .noisePrepFailed(message):
+            state.noisePrep.isLoading = false
+            state.noisePrep.isPreparingProposal = false
+            state.noisePrep.isSubmitting = false
+            state.noisePrep.errorMessage = VotingErrorMapper.userFriendlyMessage(from: message)
+            return .none
+
+        case let .noisePrepTargetNoteValueChanged(value):
+            state.noisePrep.targetNoteValueText = value
+            state.noisePrep.pendingOperation = nil
+            if let target = VoteNoiseFeature.parseZatoshi(value) {
+                VoteNoiseSettings.setTargetNoteValue(target)
+                state.noisePrep.errorMessage = nil
+            }
+            return .none
+
+        case .noisePrepResetTargetNoteValue:
+            VoteNoiseSettings.setTargetNoteValue(VoteNoiseFeature.defaultTargetNoteValue)
+            state.noisePrep.targetNoteValueText = VoteNoiseFeature.zecString(VoteNoiseFeature.defaultTargetNoteValue)
+            state.noisePrep.pendingOperation = nil
+            state.noisePrep.errorMessage = nil
+            return .none
+
+        case .noisePrepSplitTapped:
+            guard let account = state.selectedWalletAccount, account.vendor != .keystone else {
+                state.noisePrep.errorMessage = String(localized: "Zodl Noise supports seed accounts only.")
+                return .none
+            }
+            guard let target = VoteNoiseFeature.parseZatoshi(state.noisePrep.targetNoteValueText) else {
+                state.noisePrep.errorMessage = String(localized: "Enter a valid ZEC note value with at most 8 decimal places.")
+                return .none
+            }
+            let total = state.noisePrep.totalValue
+            let reserve = VoteNoiseFeature.splitReserve(total: total, target: target)
+            guard total > reserve else {
+                state.noisePrep.errorMessage = String(localized: "There is not enough spendable note value to split.")
+                return .none
+            }
+            let possibleOutputs = (total - reserve) / target
+            let outputCount = Int(min(UInt64(VoteNoiseFeature.maxSplitOutputs), possibleOutputs))
+            guard outputCount > 0 else {
+                state.noisePrep.errorMessage = String(localized: "There is not enough spendable note value to create a target note.")
+                return .none
+            }
+
+            state.noisePrep.isPreparingProposal = true
+            state.noisePrep.errorMessage = nil
+            state.noisePrep.statusMessage = nil
+            state.noisePrep.pendingOperation = nil
+            let networkType = zcashSDKEnvironment.network.networkType
+            let targetText = VoteNoiseFeature.zecString(target)
+            return .run { [sdkSynchronizer] send in
+                guard let address = try await sdkSynchronizer.getCustomUnifiedAddress(account.id, [.orchard]),
+                      let recipient = RecipientAddress(
+                        value: address.stringEncoded,
+                        context: ParserContext.from(networkType: networkType)
+                      )
+                else {
+                    throw "Unable to derive an Orchard address for this account."
+                }
+
+                let amount = try Amount(string: targetText)
+                let payments = try (0..<outputCount).map { _ in
+                    try Payment(
+                        recipientAddress: recipient,
+                        amount: amount,
+                        memo: nil,
+                        label: nil,
+                        message: nil,
+                        otherParams: nil
+                    )
+                }
+                let request = try PaymentRequest(payments: payments)
+                let uri = ZIP321.uriString(from: request, formattingOptions: .enumerateAllPayments)
+                let proposal = try await sdkSynchronizer.proposeFulfillingPaymentURI(uri, account.id)
+                let summary = "Create \(outputCount) notes of \(targetText) ZEC. If more notes are possible, run split again after this transaction confirms."
+                await send(.noisePrepProposalPrepared(.init(
+                    kind: .split,
+                    proposal: proposal,
+                    summary: summary,
+                    fee: proposal.totalFeeRequired()
+                )))
+            } catch: { error, send in
+                await send(.noisePrepFailed(error.localizedDescription))
+            }
+
+        case .noisePrepNormalizeTapped:
+            guard let account = state.selectedWalletAccount, account.vendor != .keystone else {
+                state.noisePrep.errorMessage = String(localized: "Zodl Noise supports seed accounts only.")
+                return .none
+            }
+            guard let target = VoteNoiseFeature.parseZatoshi(state.noisePrep.targetNoteValueText) else {
+                state.noisePrep.errorMessage = String(localized: "Enter a valid ZEC note value with at most 8 decimal places.")
+                return .none
+            }
+            let total = state.noisePrep.totalValue
+            let reserve = VoteNoiseFeature.normalizeReserve(total: total, target: target)
+            guard total > reserve else {
+                state.noisePrep.errorMessage = String(localized: "There is not enough spendable note value to normalize.")
+                return .none
+            }
+            let sendAmount = total - reserve
+            guard sendAmount <= UInt64(Int64.max) else {
+                state.noisePrep.errorMessage = String(localized: "The note value is too large to send.")
+                return .none
+            }
+
+            state.noisePrep.isPreparingProposal = true
+            state.noisePrep.errorMessage = nil
+            state.noisePrep.statusMessage = nil
+            state.noisePrep.pendingOperation = nil
+            let networkType = zcashSDKEnvironment.network.networkType
+            let amount = Zatoshi(Int64(sendAmount))
+            return .run { [sdkSynchronizer] send in
+                guard let address = try await sdkSynchronizer.getCustomUnifiedAddress(account.id, [.orchard]) else {
+                    throw "Unable to derive an Orchard address for this account."
+                }
+                let recipient = try Recipient(address.stringEncoded, network: networkType)
+                let proposal = try await sdkSynchronizer.proposeTransfer(account.id, recipient, amount, nil)
+                let summary = "Self-send \(VoteNoiseFeature.zecString(sendAmount)) ZEC to let the wallet planner consolidate the selected notes."
+                await send(.noisePrepProposalPrepared(.init(
+                    kind: .normalize,
+                    proposal: proposal,
+                    summary: summary,
+                    fee: proposal.totalFeeRequired()
+                )))
+            } catch: { error, send in
+                await send(.noisePrepFailed(error.localizedDescription))
+            }
+
+        case let .noisePrepProposalPrepared(operation):
+            state.noisePrep.isPreparingProposal = false
+            state.noisePrep.pendingOperation = operation
+            state.noisePrep.errorMessage = nil
+            return .none
+
+        case .noisePrepCancelProposalTapped:
+            state.noisePrep.pendingOperation = nil
+            state.noisePrep.isPreparingProposal = false
+            state.noisePrep.isSubmitting = false
+            return .none
+
+        case .noisePrepConfirmProposalTapped:
+            guard let operation = state.noisePrep.pendingOperation else { return .none }
+            guard let account = state.selectedWalletAccount,
+                  let zip32AccountIndex = account.zip32AccountIndex
+            else {
+                state.noisePrep.errorMessage = String(localized: "Missing seed account metadata.")
+                return .none
+            }
+
+            state.noisePrep.isSubmitting = true
+            state.noisePrep.errorMessage = nil
+            return .run { [
+                derivationTool,
+                localAuthentication,
+                mnemonic,
+                sdkSynchronizer,
+                walletStorage,
+                zcashSDKEnvironment
+            ] send in
+                guard await localAuthentication.authenticate() else {
+                    await send(.noisePrepFailed(String(localized: "Authentication canceled.")))
+                    return
+                }
+
+                let storedWallet = try walletStorage.exportWallet()
+                let seedBytes = try mnemonic.toSeed(storedWallet.seedPhrase.value())
+                let network = zcashSDKEnvironment.network.networkType
+                let spendingKey = try derivationTool.deriveSpendingKey(seedBytes, zip32AccountIndex, network)
+                let result = try await sdkSynchronizer.createProposedTransactions(operation.proposal, spendingKey)
+
+                switch result {
+                case .success(let txIds):
+                    await send(.noisePrepSubmitCompleted("\(operation.kind.title) submitted. \(txIds.count) transaction(s) created."))
+                case .partial(let txIds, let statuses):
+                    await send(.noisePrepFailed("Only \(txIds.count) transaction(s) were submitted: \(statuses.joined(separator: ", "))"))
+                case .grpcFailure(let txIds):
+                    await send(.noisePrepFailed("The transaction may need resubmission. \(txIds.count) transaction id(s) were created."))
+                case let .failure(_, code, description):
+                    await send(.noisePrepFailed("Submit failed with code \(code): \(description)"))
+                }
+            } catch: { error, send in
+                await send(.noisePrepFailed(error.localizedDescription))
+            }
+
+        case let .noisePrepSubmitCompleted(message):
+            state.noisePrep.isSubmitting = false
+            state.noisePrep.pendingOperation = nil
+            state.noisePrep.statusMessage = message
+            return .run { send in
+                try await Task.sleep(for: .seconds(2))
+                await send(.noisePrepRefreshTapped)
+            } catch: { _, _ in }
+
+        default:
+            return .none
+        }
+    }
+
+    private func noisePrepSnapshotHeight(_ state: State) -> UInt64? {
+        if let activeSession = state.activeSession {
+            return activeSession.snapshotHeight
+        }
+        if let activeRound = state.activeRounds.first {
+            return activeRound.session.snapshotHeight
+        }
+        return nil
     }
 }

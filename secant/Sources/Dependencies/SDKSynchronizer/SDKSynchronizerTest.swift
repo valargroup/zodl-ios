@@ -49,6 +49,7 @@ extension SDKSynchronizerClient: TestDependencyKey {
         wipe: unimplemented("\(Self.self).wipe", placeholder: nil),
         switchToEndpoint: unimplemented("\(Self.self).switchToEndpoint"),
         proposeTransfer: unimplemented("\(Self.self).proposeTransfer", placeholder: .testOnlyFakeProposal(totalFee: 0)),
+        proposeFulfillingPaymentURI: unimplemented("\(Self.self).proposeFulfillingPaymentURI", placeholder: .testOnlyFakeProposal(totalFee: 0)),
         createProposedTransactions: unimplemented("\(Self.self).createProposedTransactions", placeholder: .success(txIds: [])),
         proposeShielding: unimplemented("\(Self.self).proposeShielding", placeholder: nil),
         isSeedRelevantToAnyDerivedAccount: unimplemented("\(Self.self).isSeedRelevantToAnyDerivedAccount"),
@@ -107,6 +108,7 @@ extension SDKSynchronizerClient {
         wipe: { Empty<Void, Error>().eraseToAnyPublisher() },
         switchToEndpoint: { _ in },
         proposeTransfer: { _, _, _, _ in .testOnlyFakeProposal(totalFee: 0) },
+        proposeFulfillingPaymentURI: { _, _ in .testOnlyFakeProposal(totalFee: 0) },
         createProposedTransactions: { _, _ in .success(txIds: []) },
         proposeShielding: { _, _, _, _ in nil },
         isSeedRelevantToAnyDerivedAccount: { _ in false },
@@ -233,6 +235,8 @@ extension SDKSynchronizerClient {
         switchToEndpoint: @escaping (LightWalletEndpoint) async throws -> Void = { _ in },
         proposeTransfer:
         @escaping (AccountUUID, Recipient, Zatoshi, Memo?) async throws -> Proposal = { _, _, _, _ in .testOnlyFakeProposal(totalFee: 0) },
+        proposeFulfillingPaymentURI:
+        @escaping (String, AccountUUID) async throws -> Proposal = { _, _ in .testOnlyFakeProposal(totalFee: 0) },
         createProposedTransactions:
         @escaping (Proposal, UnifiedSpendingKey) async throws -> CreateProposedTransactionsResult = { _, _ in .success(txIds: []) },
         proposeShielding:
@@ -289,6 +293,7 @@ extension SDKSynchronizerClient {
             wipe: wipe,
             switchToEndpoint: switchToEndpoint,
             proposeTransfer: proposeTransfer,
+            proposeFulfillingPaymentURI: proposeFulfillingPaymentURI,
             createProposedTransactions: createProposedTransactions,
             proposeShielding: proposeShielding,
             isSeedRelevantToAnyDerivedAccount: isSeedRelevantToAnyDerivedAccount,

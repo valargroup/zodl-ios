@@ -131,6 +131,9 @@ extension SDKSynchronizerClient: DependencyKey {
                     memo: memo
                 )
             },
+            proposeFulfillingPaymentURI: { uri, accountUUID in
+                try await synchronizer.proposefulfillingPaymentURI(uri, accountUUID: accountUUID)
+            },
             createProposedTransactions: { proposal, spendingKey in
                 let stream = try await synchronizer.createProposedTransactions(
                     proposal: proposal,
