@@ -218,7 +218,7 @@ struct NoisePrepView: View {
             metricRow("Target notes", value: "\(store.noisePrep.targetNoteCount)")
 
             if let snapshotHeight = store.noisePrep.snapshotHeight {
-                Text("Snapshot height \(snapshotHeight)")
+                Text("Scan height \(snapshotHeight)")
                     .zFont(.medium, size: 13, style: Design.Text.tertiary)
             }
 

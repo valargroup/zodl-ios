@@ -1161,17 +1161,13 @@ struct Voting {
             state.noisePrep.statusMessage = nil
             state.noisePrep.pendingOperation = nil
 
-            let requestedSnapshotHeight = noisePrepSnapshotHeight(state)
             let accountUUID = account.id.id
             let network = zcashSDKEnvironment.network
             let walletDbPath = databaseFiles.dataDbURLFor(network).path
             let networkId = network.networkType.votingRustNetworkId
             return .run { [sdkSynchronizer, votingCrypto] send in
-                var snapshotHeight = requestedSnapshotHeight
-                if snapshotHeight == nil {
-                    let latestHeight = UInt64(sdkSynchronizer.latestState().fullyScannedHeight)
-                    snapshotHeight = latestHeight > 0 ? latestHeight : nil
-                }
+                let latestHeight = UInt64(sdkSynchronizer.latestState().fullyScannedHeight)
+                let snapshotHeight = latestHeight > 0 ? latestHeight : nil
                 guard let snapshotHeight else {
                     await send(.noisePrepFailed(String(localized: "The wallet has not scanned far enough to inspect notes yet.")))
                     return
@@ -1193,7 +1189,7 @@ struct Voting {
             state.noisePrep.snapshotHeight = snapshotHeight
             state.noisePrep.isLoading = false
             state.noisePrep.errorMessage = nil
-            state.noisePrep.statusMessage = "Loaded \(notes.count) notes at height \(snapshotHeight)."
+            state.noisePrep.statusMessage = "Loaded \(notes.count) current notes at scan height \(snapshotHeight)."
             return .none
 
         case let .noisePrepFailed(message):
@@ -1396,13 +1392,4 @@ struct Voting {
         }
     }
 
-    private func noisePrepSnapshotHeight(_ state: State) -> UInt64? {
-        if let activeSession = state.activeSession {
-            return activeSession.snapshotHeight
-        }
-        if let activeRound = state.activeRounds.first {
-            return activeRound.session.snapshotHeight
-        }
-        return nil
-    }
 }
