@@ -245,6 +245,18 @@ extension Settings {
                 state.path.append(.voting(votingState))
                 return .none
 
+            case .noiseNotePrepTapped:
+                guard let account = state.selectedWalletAccount else { return .none }
+                var votingState = Voting.State()
+                votingState.isKeystoneUser = state.isKeystoneAccount
+                votingState.walletId = account.id.id.map { String(format: "%02x", $0) }.joined()
+                // Land directly on the Noise Prep screen instead of the polls
+                // list. The Voting reducer's other state (rounds, sessions,
+                // bundles) stays empty — Noise Prep doesn't read it.
+                votingState.screenStack = [.noisePrep]
+                state.path.append(.voting(votingState))
+                return .none
+
             case .path(.element(id: _, action: .voting(.dismissFlow))):
                 let _ = state.path.popLast()
                 return .none

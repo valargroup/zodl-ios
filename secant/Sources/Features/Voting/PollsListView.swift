@@ -32,17 +32,6 @@ struct PollsListView: View {
             .screenTitle(String(localizable: .coinVoteCommonScreenTitle))
             .zashiBack { store.send(.dismissFlow) }
             .toolbar {
-                if VoteNoiseFeature.isEnabled {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            store.send(.openNoisePrep)
-                        } label: {
-                            noisePrepButtonIcon()
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Zodl Noise notes")
-                    }
-                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         store.send(.openConfigSettings)
@@ -73,25 +62,7 @@ struct PollsListView: View {
         }
     }
 
-    @ViewBuilder
-    private func noisePrepButtonIcon() -> some View {
-        let icon = Image(systemName: "square.grid.3x3")
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(Design.Btns.Ghost.fg.color(colorScheme))
-
-        if #available(iOS 26.0, *) {
-            icon
-        } else {
-            icon
-                .padding(8)
-                .background {
-                    RoundedRectangle(cornerRadius: Design.Radius._md)
-                        .fill(Design.Btns.Ghost.bg.color(colorScheme))
-                }
-        }
-    }
-
-    @ViewBuilder
+@ViewBuilder
     private func settingsButtonIcon() -> some View {
         let icon = Asset.Assets.Icons.settings2.image
             .zImage(size: 20, style: Design.Btns.Ghost.fg)

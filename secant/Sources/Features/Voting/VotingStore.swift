@@ -49,6 +49,13 @@ enum VotingErrorMapper {
                 return String(localizable: .coinVoteStoreUserErrorNoReachableVoteServers)
             }
         }
+        // `ZcashError.localizedDescription` is "<code>: <message>" and deliberately
+        // drops the associated rustError string carried by every rust* case, so we
+        // pull it out here. Without this, every ZRUST00XX surface in the UI as the
+        // same generic "Error from rust layer" line with no actionable detail.
+        if let zcashError = error as? ZcashError, let rustError = zcashError.rustErrorDetail {
+            return userFriendlyMessage(from: "\(zcashError.code.rawValue): \(rustError)")
+        }
         return userFriendlyMessage(from: error.localizedDescription)
     }
 
@@ -110,6 +117,23 @@ enum VotingErrorMapper {
             return String(localizable: .coinVoteStoreUserErrorLightwalletdUnavailable)
         }
         return rawError
+    }
+}
+
+extension ZcashError {
+    /// First String associated value from the enum case, when present. The SDK has
+    /// 90+ `rust*` cases that each wrap the underlying rust error as their only
+    /// associated value, but `localizedDescription` collapses them to a generic
+    /// "Error from rust layer..." line. Reflecting over the case picks the detail
+    /// out without enumerating every code by hand.
+    var rustErrorDetail: String? {
+        let mirror = Mirror(reflecting: self)
+        for child in mirror.children {
+            if let stringValue = child.value as? String, !stringValue.isEmpty {
+                return stringValue
+            }
+        }
+        return nil
     }
 }
 
@@ -186,30 +210,97 @@ struct Voting {
             var isLoading: Bool = false
             var isPreparingProposal: Bool = false
             var isSubmitting: Bool = false
+            var isSyncing: Bool = false
             var targetNoteValueText: String = VoteNoiseSettings.targetNoteValueText
             var errorMessage: String?
             var statusMessage: String?
             var pendingOperation: NoisePrepPendingOperation?
+            var showDustNotes: Bool = false
+            /// Snapshot of note positions captured at submit time so we can
+            /// detect when the chain catches up and the wallet's note set has
+            /// actually changed. While `isSyncing` we keep polling refresh
+            /// until this set differs, then stop.
+            var preSyncNotePositions: Set<UInt64> = []
 
             var totalValue: UInt64 {
                 notes.reduce(UInt64(0)) { $0 + $1.value }
             }
 
-            var exactBallotNoteCount: Int {
-                notes.filter { $0.value == ballotDivisor }.count
+            var dustNotes: [NoteInfo] {
+                notes.filter { $0.value <= VoteNoiseFeature.dustThresholdZatoshi }
             }
+
+            var nonDustNotes: [NoteInfo] {
+                notes.filter { $0.value > VoteNoiseFeature.dustThresholdZatoshi }
+            }
+
+            /// Notes to render in the list. Dust is hidden by default; the user
+            /// can toggle `showDustNotes` to reveal them.
+            var displayedNotes: [NoteInfo] {
+                showDustNotes ? notes : nonDustNotes
+            }
+
+            var dustCount: Int { dustNotes.count }
+            var dustValue: UInt64 { dustNotes.reduce(UInt64(0)) { $0 + $1.value } }
 
             var targetNoteValue: UInt64? {
                 VoteNoiseFeature.parseZatoshi(targetNoteValueText)
             }
 
-            var targetNoteCount: Int {
-                guard let targetNoteValue else { return 0 }
-                return notes.filter { $0.value == targetNoteValue }.count
-            }
-
             var displayTargetNoteValue: UInt64 {
                 targetNoteValue ?? VoteNoiseSettings.targetNoteValue
+            }
+
+            /// Count of wallet notes whose value is ≥ the user's target —
+            /// i.e. the notes that could already serve as voting notes at this target
+            /// (exact matches included). When the target is unparseable we fall back
+            /// to the saved/default target so the metric stays interpretable.
+            var notesAtOrAboveTargetCount: Int {
+                notes.filter { $0.value >= displayTargetNoteValue }.count
+            }
+
+            /// How many target-sized notes the upcoming split would actually produce
+            /// given current balance, reserve policy, and the hard 100-output cap.
+            /// `nil` when no target is set or the wallet can't cover even a single
+            /// output. Mirrors the logic in `reduceNoisePrep(.noisePrepSplitTapped)`.
+            var projectedSplitOutputCount: Int? {
+                guard let target = targetNoteValue, target > 0 else { return nil }
+                let total = totalValue
+                let reserve = VoteNoiseFeature.splitReserve(total: total, target: target)
+                guard total > reserve else { return nil }
+                let possibleOutputs = (total - reserve) / target
+                let outputCount = Int(min(UInt64(VoteNoiseFeature.maxSplitOutputs), possibleOutputs))
+                return outputCount > 0 ? outputCount : nil
+            }
+
+            /// Net target-sized notes a split would add over what the wallet
+            /// already has. `nil` if split isn't feasible (no target / no budget).
+            /// Used to disable the Split button when running it would just
+            /// reshuffle notes without producing any new voting-ready ones.
+            var projectedSplitNetGain: Int? {
+                guard let projected = projectedSplitOutputCount else { return nil }
+                return projected - notesAtOrAboveTargetCount
+            }
+
+            /// Sum of non-dust notes excluding the single largest one. This is
+            /// the value that Consolidate would actually "sweep into" the new
+            /// merged note. `nil` when there's nothing to sweep (≤ 1 non-dust
+            /// note total).
+            var consolidatableValue: UInt64? {
+                let nonDust = nonDustNotes
+                guard nonDust.count >= 2 else { return nil }
+                let sorted = nonDust.sorted { $0.value > $1.value }
+                return sorted.dropFirst().reduce(UInt64(0)) { $0 + $1.value }
+            }
+
+            /// Whether running Consolidate would produce a meaningfully larger
+            /// note. True when sweep value comfortably exceeds typical ZIP-317
+            /// fees so we're not just paying to reshuffle. Used to disable
+            /// the Consolidate button when the wallet is already effectively
+            /// one note.
+            var canConsolidateMeaningfully: Bool {
+                guard let sweep = consolidatableValue else { return false }
+                return sweep > VoteNoiseFeature.consolidateMeaningfulMinZatoshi
             }
         }
 
@@ -771,6 +862,7 @@ struct Voting {
     let cancelDelegationPrecomputeId = UUID()
     let cancelNewRoundPollingId = UUID()
     let cancelShareTrackingId = UUID()
+    let cancelNoisePrepSyncId = UUID()
 
     enum Action: Equatable {
         // Navigation
@@ -913,7 +1005,6 @@ struct Voting {
         case dismissBatchResults
 
         // Zodl Noise note prep
-        case openNoisePrep
         case noisePrepRefreshTapped
         case noisePrepNotesLoaded([NoteInfo], UInt64)
         case noisePrepFailed(String)
@@ -925,6 +1016,8 @@ struct Voting {
         case noisePrepConfirmProposalTapped
         case noisePrepCancelProposalTapped
         case noisePrepSubmitCompleted(String)
+        case noisePrepToggleShowDust(Bool)
+        case noisePrepSyncingFinished
 
         // Complete
         case doneTapped
@@ -939,7 +1032,6 @@ struct Voting {
             case .dismissFlow,
                 .goBack,
                 .howToVoteContinueTapped,
-                .openNoisePrep,
                 .openConfigSettings,
                 .configSettings,
                 .viewMyVotesTapped,
@@ -1097,7 +1189,9 @@ struct Voting {
                 .noisePrepProposalPrepared,
                 .noisePrepConfirmProposalTapped,
                 .noisePrepCancelProposalTapped,
-                .noisePrepSubmitCompleted:
+                .noisePrepSubmitCompleted,
+                .noisePrepToggleShowDust,
+                .noisePrepSyncingFinished:
                 return reduceNoisePrep(&state, action)
             }
         }
@@ -1144,6 +1238,20 @@ struct Voting {
         }
     }
 
+    /// Pulls the underlying rust-error detail out of a `ZcashError` (which
+    /// `localizedDescription` omits) and logs the full thing. Always returns a
+    /// non-empty string suitable for the noisePrep UI.
+    static func noisePrepErrorDescription(_ error: Error) -> String {
+        let description: String
+        if let zcashError = error as? ZcashError, let rustError = zcashError.rustErrorDetail {
+            description = "\(zcashError.code.rawValue): \(rustError)"
+        } else {
+            description = error.localizedDescription
+        }
+        votingLogger.error("Zodl Noise prep failed: \(description, privacy: .public)")
+        return description
+    }
+
     func reduceNoisePrep(_ state: inout State, _ action: Action) -> Effect<Action> {
         switch action {
         case .noisePrepRefreshTapped:
@@ -1165,7 +1273,23 @@ struct Voting {
             let network = zcashSDKEnvironment.network
             let walletDbPath = databaseFiles.dataDbURLFor(network).path
             let networkId = network.networkType.votingRustNetworkId
+            let walletId = state.walletId
             return .run { [sdkSynchronizer, votingCrypto] send in
+                // `getWalletNotes` is a voting-API call and requires a live
+                // `VotingDatabaseHandle`, even though the data it returns lives
+                // in the wallet DB. The voting flow's `.initialize` chain
+                // normally opens this DB and sets the wallet ID, but when
+                // entering this screen directly from Settings → Split /
+                // Consolidate Notes that chain is skipped — so open it here.
+                // Both calls go through an actor that holds a single backend
+                // and replaces it cleanly on re-open, so this is idempotent
+                // across refreshes.
+                let votingDbPath = FileManager.default
+                    .urls(for: .documentDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("voting.sqlite3").path
+                try await votingCrypto.openDatabase(votingDbPath)
+                try await votingCrypto.setWalletId(walletId)
+
                 let latestState = sdkSynchronizer.latestState()
                 let latestHeight = UInt64(latestState.fullyScannedHeight)
                 let snapshotHeight = latestHeight > 0 ? latestHeight : nil
@@ -1173,26 +1297,24 @@ struct Voting {
                     await send(.noisePrepFailed(String(localized: "The wallet has not scanned far enough to inspect notes yet.")))
                     return
                 }
-                let latestBlockHeight = UInt64(latestState.latestBlockHeight)
-                let targetHeight = latestBlockHeight > 0 ? latestBlockHeight + 1 : snapshotHeight + 1
 
+                // `getWalletNotes` already returns the right set: unspent Orchard
+                // notes at the snapshot height for this account, both external
+                // and internal scope. An earlier version of this code intersected
+                // those with a separate chain-tip "spendable" SQL query that
+                // applied a 10-confirmation depth for internal-scope notes,
+                // which hid every internal note for ~10 blocks after a split tx
+                // mined — funds weren't lost, just invisible. The SDK call is
+                // sufficient on its own.
                 let notes = try await votingCrypto.getWalletNotes(
                     walletDbPath,
                     snapshotHeight,
                     networkId,
                     accountUUID
                 )
-                let spendablePositions = try VotingSpendableNoteStore.currentSpendableOrchardPositions(
-                    walletDbPath: walletDbPath,
-                    accountUUID: accountUUID,
-                    targetHeight: targetHeight
-                )
-                await send(.noisePrepNotesLoaded(
-                    notes.filter { spendablePositions.contains($0.position) },
-                    snapshotHeight
-                ))
+                await send(.noisePrepNotesLoaded(notes, snapshotHeight))
             } catch: { error, send in
-                await send(.noisePrepFailed(error.localizedDescription))
+                await send(.noisePrepFailed(Voting.noisePrepErrorDescription(error)))
             }
 
         case let .noisePrepNotesLoaded(notes, snapshotHeight):
@@ -1200,7 +1322,20 @@ struct Voting {
             state.noisePrep.snapshotHeight = snapshotHeight
             state.noisePrep.isLoading = false
             state.noisePrep.errorMessage = nil
-            state.noisePrep.statusMessage = "Loaded \(notes.count) current spendable notes at scan height \(snapshotHeight)."
+            // While the wallet is syncing after a submit, suppress the chatty
+            // "Loaded N notes at scan height …" line so the "Syncing wallet…"
+            // banner stays visible. Once the note positions actually change,
+            // we know the chain has caught up and we can stop polling.
+            if state.noisePrep.isSyncing {
+                let currentPositions = Set(notes.map { $0.position })
+                if currentPositions != state.noisePrep.preSyncNotePositions {
+                    state.noisePrep.isSyncing = false
+                    state.noisePrep.statusMessage = "Wallet synced. \(notes.count) note(s) at scan height \(snapshotHeight)."
+                    return .cancel(id: cancelNoisePrepSyncId)
+                }
+                return .none
+            }
+            state.noisePrep.statusMessage = "Loaded \(notes.count) wallet notes at scan height \(snapshotHeight)."
             return .none
 
         case let .noisePrepFailed(message):
@@ -1243,6 +1378,7 @@ struct Voting {
             }
             let possibleOutputs = (total - reserve) / target
             let outputCount = Int(min(UInt64(VoteNoiseFeature.maxSplitOutputs), possibleOutputs))
+            let capHit = possibleOutputs > UInt64(VoteNoiseFeature.maxSplitOutputs)
             guard outputCount > 0 else {
                 state.noisePrep.errorMessage = String(localized: "There is not enough spendable note value to create a target note.")
                 return .none
@@ -1276,9 +1412,24 @@ struct Voting {
                     )
                 }
                 let request = try PaymentRequest(payments: payments)
-                let uri = ZIP321.uriString(from: request, formattingOptions: .enumerateAllPayments)
+                // `.enumerateAllPayments` produces "zcash:address.1=...&amount.1=...&address.2=..."
+                // which omits the "?" separator after "zcash:" that ZIP-321 requires when
+                // the first payment is indexed — the rust parser rejects it with a
+                // ParseError on the lead address (ZRUST0057). The empty-param-index form
+                // emits "zcash:<addr>?amount=<a>&address.1=<addr>&amount.1=<a>&…" which the
+                // parser accepts.
+                let uri = ZIP321.uriString(
+                    from: request,
+                    formattingOptions: .useEmptyParamIndex(omitAddressLabel: true)
+                )
                 let proposal = try await sdkSynchronizer.proposeFulfillingPaymentURI(uri, account.id)
-                let summary = "Create \(outputCount) notes of \(targetText) ZEC. If more notes are possible, run split again after this transaction confirms."
+                let summary: String
+                if capHit {
+                    summary = "Create \(outputCount) notes of \(targetText) ZEC — the maximum per transaction. "
+                        + "Your balance can produce more, so run Split again after this transaction confirms."
+                } else {
+                    summary = "Create \(outputCount) notes of \(targetText) ZEC."
+                }
                 await send(.noisePrepProposalPrepared(.init(
                     kind: .split,
                     proposal: proposal,
@@ -1286,12 +1437,16 @@ struct Voting {
                     fee: proposal.totalFeeRequired()
                 )))
             } catch: { error, send in
-                await send(.noisePrepFailed(error.localizedDescription))
+                await send(.noisePrepFailed(Voting.noisePrepErrorDescription(error)))
             }
 
         case .noisePrepNormalizeTapped:
             guard let account = state.selectedWalletAccount, account.vendor != .keystone else {
                 state.noisePrep.errorMessage = String(localized: "Zodl Noise supports seed accounts only.")
+                return .none
+            }
+            guard state.noisePrep.canConsolidateMeaningfully else {
+                state.noisePrep.errorMessage = String(localized: "Wallet is already effectively one note — nothing to consolidate.")
                 return .none
             }
             guard let target = VoteNoiseFeature.parseZatoshi(state.noisePrep.targetNoteValueText) else {
@@ -1330,7 +1485,7 @@ struct Voting {
                     fee: proposal.totalFeeRequired()
                 )))
             } catch: { error, send in
-                await send(.noisePrepFailed(error.localizedDescription))
+                await send(.noisePrepFailed(Voting.noisePrepErrorDescription(error)))
             }
 
         case let .noisePrepProposalPrepared(operation):
@@ -1386,17 +1541,45 @@ struct Voting {
                     await send(.noisePrepFailed("Submit failed with code \(code): \(description)"))
                 }
             } catch: { error, send in
-                await send(.noisePrepFailed(error.localizedDescription))
+                await send(.noisePrepFailed(Voting.noisePrepErrorDescription(error)))
             }
 
         case let .noisePrepSubmitCompleted(message):
             state.noisePrep.isSubmitting = false
             state.noisePrep.pendingOperation = nil
             state.noisePrep.statusMessage = message
+            state.noisePrep.isSyncing = true
+            state.noisePrep.preSyncNotePositions = Set(state.noisePrep.notes.map { $0.position })
+            // Zcash mainnet block time is ~75s and we also wait on the
+            // wallet's own scan loop, so a single refresh 2s after submit
+            // is far too soon. Poll on a back-off curve until the note set
+            // actually changes (handled in `noisePrepNotesLoaded`) or we
+            // exhaust the budget. Cancelled by `NoisePrepSyncCancelID` when
+            // the user submits again or change is detected.
             return .run { send in
-                try await Task.sleep(for: .seconds(2))
-                await send(.noisePrepRefreshTapped)
+                let delays: [Duration] = [
+                    .seconds(3), .seconds(5), .seconds(7), .seconds(10),
+                    .seconds(15), .seconds(20), .seconds(30), .seconds(45),
+                    .seconds(60), .seconds(60), .seconds(60)
+                ]
+                for delay in delays {
+                    try await Task.sleep(for: delay)
+                    await send(.noisePrepRefreshTapped)
+                }
+                await send(.noisePrepSyncingFinished)
             } catch: { _, _ in }
+            .cancellable(id: cancelNoisePrepSyncId, cancelInFlight: true)
+
+        case .noisePrepSyncingFinished:
+            state.noisePrep.isSyncing = false
+            if state.noisePrep.errorMessage == nil {
+                state.noisePrep.statusMessage = "Wallet still catching up. Pull to refresh once your transaction confirms."
+            }
+            return .none
+
+        case let .noisePrepToggleShowDust(show):
+            state.noisePrep.showDustNotes = show
+            return .none
 
         default:
             return .none

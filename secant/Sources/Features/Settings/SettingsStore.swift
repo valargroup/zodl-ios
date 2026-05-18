@@ -75,6 +75,7 @@ struct Settings {
         case checkFundsForAddress(String)
         case closeResyncHelpSheetTapped
         case coinholderPollingTapped
+        case noiseNotePrepTapped
         case currencyConversionTapped
         case enableEnhanceTransactionMode
         case enableRecoverFundsMode
@@ -133,6 +134,9 @@ struct Settings {
                 }
 
             case .coinholderPollingTapped:
+                return .none
+
+            case .noiseNotePrepTapped:
                 return .none
 
             case .currencyConversionTapped:

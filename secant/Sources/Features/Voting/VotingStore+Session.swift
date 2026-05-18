@@ -118,6 +118,11 @@ extension Voting {
             // This keeps vote/PIR endpoints fresh while proposal data stays sourced
             // from the chain round queries below.
             guard state.currentScreen != .howToVote else { return .none }
+            // Noise Prep is reached directly from Settings → Split / Consolidate
+            // Notes and only needs the wallet's note set, not voting-service
+            // discovery. Skipping initialize keeps the user on `.noisePrep`
+            // instead of getting bounced into the polls list once configs load.
+            guard state.currentScreen != .noisePrep else { return .none }
             guard !state.isSubmittingVote else { return .none }
             state.prepareForServiceConfigRefresh()
             // Read straight from UserDefaults rather than `state.votingConfigOverrideURL`

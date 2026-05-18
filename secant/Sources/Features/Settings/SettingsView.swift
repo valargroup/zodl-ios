@@ -39,6 +39,15 @@ struct SettingsView: View {
                                 store.send(.coinholderPollingTapped)
                             }
 
+                            if VoteNoiseFeature.isEnabled {
+                                ActionRow(
+                                    icon: Asset.Assets.Icons.coinsSwap.image,
+                                    title: "Split / Consolidate Notes"
+                                ) {
+                                    store.send(.noiseNotePrepTapped)
+                                }
+                            }
+
                             ActionRow(
                                 icon: Asset.Assets.Icons.settings.image,
                                 title: String(localizable: .settingsAdvanced)

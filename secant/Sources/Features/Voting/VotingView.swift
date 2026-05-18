@@ -177,187 +177,412 @@ struct NoisePrepView: View {
         WithPerceptionTracking {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    summarySection
+                    summaryCard
+                    if store.noisePrep.isSyncing {
+                        syncingBanner
+                    } else if let error = store.noisePrep.errorMessage {
+                        banner(text: error, style: .error)
+                    } else if let status = store.noisePrep.statusMessage {
+                        banner(text: status, style: .info)
+                    }
                     actionSection
-                    noteListSection
-                    advancedSection
+                    noteListCard
                 }
                 .padding(.horizontal, 24)
+                .padding(.top, 8)
                 .padding(.bottom, 24)
             }
             .applyScreenBackground()
-            .screenTitle("Zodl Noise")
-            .zashiBack { store.send(.goBack) }
+            .screenTitle("Split / Consolidate Notes")
+            // Noise Prep is now the root screen of the voting flow when
+            // entered from Settings → Split / Consolidate Notes, so backing
+            // out should dismiss the whole voting flow rather than pop
+            // within it.
+            .zashiBack { store.send(.dismissFlow) }
             .onAppear { store.send(.noisePrepRefreshTapped) }
         }
     }
 
-    private var summarySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Notes")
-                    .zFont(.semiBold, size: 20, style: Design.Text.primary)
-                Spacer()
-                if store.noisePrep.isLoading {
-                    ProgressView()
-                } else {
-                    Button {
-                        store.send(.noisePrepRefreshTapped)
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 18, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Refresh notes")
-                }
-            }
+    // MARK: Summary card
 
-            metricRow("Total", value: "\(VoteNoiseFeature.zecString(store.noisePrep.totalValue)) ZEC")
-            metricRow("Count", value: "\(store.noisePrep.notes.count)")
-            metricRow("0.125 ZEC notes", value: "\(store.noisePrep.exactBallotNoteCount)")
-            metricRow("Target notes", value: "\(store.noisePrep.targetNoteCount)")
-
-            if let snapshotHeight = store.noisePrep.snapshotHeight {
-                Text("Scan height \(snapshotHeight)")
-                    .zFont(.medium, size: 13, style: Design.Text.tertiary)
-            }
-
-            if let status = store.noisePrep.statusMessage {
-                Text(status)
-                    .zFont(.medium, size: 14, style: Design.Text.tertiary)
-            }
-
-            if let error = store.noisePrep.errorMessage {
-                Text(error)
-                    .zFont(.medium, size: 14, style: Design.Utility.ErrorRed._500)
-            }
-        }
-        .padding(16)
-        .background {
-            RoundedRectangle(cornerRadius: Design.Radius._md)
-                .fill(Design.Surfaces.bgAlt.color(colorScheme))
-        }
-    }
-
-    private var actionSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let pendingOperation = store.noisePrep.pendingOperation {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(pendingOperation.kind.title)
-                        .zFont(.semiBold, size: 16, style: Design.Text.primary)
-                    Text(pendingOperation.summary)
-                        .zFont(.medium, size: 14, style: Design.Text.tertiary)
-                    Text("Fee: \(pendingOperation.fee.decimalZashiFullFormatted()) ZEC")
-                        .zFont(.medium, size: 14, style: Design.Text.tertiary)
-                }
-                Button {
-                    store.send(.noisePrepConfirmProposalTapped)
-                } label: {
-                    HStack {
-                        if store.noisePrep.isSubmitting {
-                            ProgressView()
-                        }
-                        Text("Confirm")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(store.noisePrep.isSubmitting)
-
-                Button("Cancel") {
-                    store.send(.noisePrepCancelProposalTapped)
-                }
-                .buttonStyle(.bordered)
-                .frame(maxWidth: .infinity)
-                .disabled(store.noisePrep.isSubmitting)
-            } else {
-                Button {
-                    store.send(.noisePrepSplitTapped)
-                } label: {
-                    HStack {
-                        if store.noisePrep.isPreparingProposal {
-                            ProgressView()
-                        }
-                        Text("Split to target notes")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(store.noisePrep.isLoading || store.noisePrep.isPreparingProposal || store.noisePrep.notes.isEmpty)
-
-                Button("Normalize notes") {
-                    store.send(.noisePrepNormalizeTapped)
-                }
-                .buttonStyle(.bordered)
-                .frame(maxWidth: .infinity)
-                .disabled(store.noisePrep.isLoading || store.noisePrep.isPreparingProposal || store.noisePrep.notes.isEmpty)
-            }
-        }
-    }
-
-    private var noteListSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Current Notes")
-                .zFont(.semiBold, size: 16, style: Design.Text.primary)
-
-            if store.noisePrep.notes.isEmpty {
-                Text("No notes found.")
-                    .zFont(.medium, size: 14, style: Design.Text.tertiary)
-            } else {
-                ForEach(Array(store.noisePrep.notes.sorted { $0.position < $1.position }.enumerated()), id: \.element.position) { _, note in
-                    HStack {
-                        Text("#\(note.position)")
+    private var summaryCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Notes")
+                        .zFont(.semiBold, size: 20, style: Design.Text.primary)
+                    if let snapshotHeight = store.noisePrep.snapshotHeight {
+                        Text("Scan height \(snapshotHeight)")
                             .zFont(.medium, size: 13, style: Design.Text.tertiary)
-                            .lineLimit(1)
-                        Spacer()
-                        Text("\(VoteNoiseFeature.zecString(note.value)) ZEC")
-                            .zFont(.semiBold, size: 14, style: Design.Text.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .layoutPriority(1)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 6)
                 }
+                Spacer()
+                refreshControl
             }
+
+            VStack(spacing: 10) {
+                metricRow("Total", value: "\(VoteNoiseFeature.zecString(store.noisePrep.totalValue)) ZEC")
+                divider
+                metricRow("Wallet notes", value: "\(store.noisePrep.notes.count)")
+                divider
+                metricRow(
+                    "Notes ≥ \(VoteNoiseFeature.zecString(store.noisePrep.displayTargetNoteValue)) ZEC",
+                    value: "\(store.noisePrep.notesAtOrAboveTargetCount)",
+                    emphasize: true
+                )
+            }
+
+            targetControl
         }
+        .padding(Design.Spacing._xl)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Design.Surfaces.bgPrimary.color(colorScheme))
+        .clipShape(RoundedRectangle(cornerRadius: Design.Radius._2xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: Design.Radius._2xl)
+                .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
+        )
     }
 
-    private var advancedSection: some View {
-        DisclosureGroup("Advanced") {
-            VStack(alignment: .leading, spacing: 10) {
+    @ViewBuilder
+    private var refreshControl: some View {
+        if store.noisePrep.isLoading {
+            ProgressView()
+                .frame(width: 36, height: 36)
+        } else {
+            Button {
+                store.send(.noisePrepRefreshTapped)
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Design.Text.primary.color(colorScheme))
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle()
+                            .fill(Design.Surfaces.bgSecondary.color(colorScheme))
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Refresh notes")
+        }
+    }
+
+    private var targetControl: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Target note value")
+                    .zFont(.medium, size: 13, style: Design.Text.tertiary)
+                Spacer()
+                if store.noisePrep.targetNoteValue != VoteNoiseFeature.defaultTargetNoteValue {
+                    Button("Reset") {
+                        store.send(.noisePrepResetTargetNoteValue)
+                    }
+                    .zFont(.semiBold, size: 13, style: Design.Btns.Ghost.fg)
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack(spacing: 8) {
                 TextField(
-                    "0.125",
+                    VoteNoiseFeature.zecString(VoteNoiseFeature.defaultTargetNoteValue),
                     text: Binding(
                         get: { store.noisePrep.targetNoteValueText },
                         set: { store.send(.noisePrepTargetNoteValueChanged($0)) }
                     )
                 )
                 .keyboardType(.decimalPad)
-                .textFieldStyle(.roundedBorder)
-
-                Button("Reset to 0.125 ZEC") {
-                    store.send(.noisePrepResetTargetNoteValue)
-                }
-                .buttonStyle(.bordered)
-
-                Text("Split uses this target. Voting always uses exact 0.125 ZEC notes for noise VANs.")
-                    .zFont(.medium, size: 13, style: Design.Text.tertiary)
+                .zFont(.semiBold, size: 14, style: Design.Text.primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: Design.Radius._md)
+                        .fill(Design.Surfaces.bgSecondary.color(colorScheme))
+                )
+                Text("ZEC")
+                    .zFont(.medium, size: 14, style: Design.Text.tertiary)
             }
-            .padding(.top, 8)
+            Text("Split uses this target. Voting always uses exact 0.125 ZEC notes.")
+                .zFont(.medium, size: 12, style: Design.Text.tertiary)
         }
-        .zFont(.semiBold, size: 14, style: Design.Text.primary)
     }
 
-    private func metricRow(_ title: String, value: String) -> some View {
+    private var divider: some View {
+        Rectangle()
+            .fill(Design.Surfaces.strokeSecondary.color(colorScheme))
+            .frame(height: 1)
+    }
+
+    private func metricRow(_ title: String, value: String, emphasize: Bool = false) -> some View {
         HStack {
             Text(title)
                 .zFont(.medium, size: 14, style: Design.Text.tertiary)
             Spacer()
             Text(value)
-                .zFont(.semiBold, size: 14, style: Design.Text.primary)
+                .zFont(
+                    emphasize ? .semiBold : .medium,
+                    size: emphasize ? 16 : 14,
+                    style: Design.Text.primary
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
+    }
+
+    // MARK: Banner
+
+    private enum BannerStyle {
+        case info
+        case error
+    }
+
+    private func banner(text: String, style: BannerStyle) -> some View {
+        let palette = bannerPalette(for: style)
+        return Text(text)
+            .zFont(.medium, size: 13, style: palette.fg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(palette.bg.color(colorScheme))
+            .clipShape(RoundedRectangle(cornerRadius: Design.Radius._md))
+            .overlay(
+                RoundedRectangle(cornerRadius: Design.Radius._md)
+                    .stroke(palette.stroke.color(colorScheme), lineWidth: 1)
+            )
+    }
+
+    private func bannerPalette(for style: BannerStyle) -> (fg: Colorable, bg: Colorable, stroke: Colorable) {
+        switch style {
+        case .info:
+            return (Design.Text.primary, Design.Surfaces.bgSecondary, Design.Surfaces.strokeSecondary)
+        case .error:
+            return (Design.Utility.ErrorRed._700, Design.Utility.ErrorRed._50, Design.Utility.ErrorRed._200)
+        }
+    }
+
+    private var syncingBanner: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Syncing wallet…")
+                    .zFont(.semiBold, size: 14, style: Design.Text.primary)
+                Text("Waiting for your transaction to mine and the wallet to scan. Takes ~1–2 minutes on mainnet.")
+                    .zFont(.medium, size: 12, style: Design.Text.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Design.Surfaces.bgSecondary.color(colorScheme))
+        .clipShape(RoundedRectangle(cornerRadius: Design.Radius._md))
+        .overlay(
+            RoundedRectangle(cornerRadius: Design.Radius._md)
+                .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
+        )
+    }
+
+    // MARK: Action section
+
+    @ViewBuilder
+    private var actionSection: some View {
+        if let pending = store.noisePrep.pendingOperation {
+            pendingProposalCard(pending)
+        } else {
+            VStack(spacing: 10) {
+                ZashiButton(splitButtonTitle, type: .primary) {
+                    store.send(.noisePrepSplitTapped)
+                }
+                .disabled(splitDisabled)
+
+                ZashiButton(consolidateButtonTitle, type: .secondary) {
+                    store.send(.noisePrepNormalizeTapped)
+                }
+                .disabled(consolidateDisabled)
+            }
+        }
+    }
+
+    private var splitButtonTitle: String {
+        if store.noisePrep.isPreparingProposal {
+            return "Preparing…"
+        }
+        let targetText = VoteNoiseFeature.zecString(store.noisePrep.displayTargetNoteValue)
+        guard let projected = store.noisePrep.projectedSplitOutputCount else {
+            return "Split into \(targetText) ZEC notes"
+        }
+        if let gain = store.noisePrep.projectedSplitNetGain, gain <= 0 {
+            return "Already at \(projected) × \(targetText) ZEC"
+        }
+        return "Split into \(projected) × \(targetText) ZEC"
+    }
+
+    private var splitDisabled: Bool {
+        store.noisePrep.isLoading
+            || store.noisePrep.isPreparingProposal
+            || store.noisePrep.notes.isEmpty
+            || store.noisePrep.projectedSplitOutputCount == nil
+            || (store.noisePrep.projectedSplitNetGain ?? 0) <= 0
+    }
+
+    private var consolidateDisabled: Bool {
+        store.noisePrep.isLoading
+            || store.noisePrep.isPreparingProposal
+            || store.noisePrep.notes.isEmpty
+            || !store.noisePrep.canConsolidateMeaningfully
+    }
+
+    private var consolidateButtonTitle: String {
+        if store.noisePrep.isPreparingProposal {
+            return "Preparing…"
+        }
+        guard store.noisePrep.canConsolidateMeaningfully else {
+            return "Already consolidated"
+        }
+        return "Consolidate notes"
+    }
+
+    private func pendingProposalCard(_ pending: Voting.State.NoisePrepPendingOperation) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(pending.kind.title)
+                    .zFont(.semiBold, size: 16, style: Design.Text.primary)
+                Text(pending.summary)
+                    .zFont(.medium, size: 14, style: Design.Text.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                Text("Fee")
+                    .zFont(.medium, size: 14, style: Design.Text.tertiary)
+                Spacer()
+                Text("\(pending.fee.decimalZashiFullFormatted()) ZEC")
+                    .zFont(.semiBold, size: 14, style: Design.Text.primary)
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(Design.Surfaces.bgSecondary.color(colorScheme))
+            .clipShape(RoundedRectangle(cornerRadius: Design.Radius._md))
+
+            VStack(spacing: 10) {
+                ZashiButton(
+                    store.noisePrep.isSubmitting ? "Submitting…" : "Confirm",
+                    type: .primary
+                ) {
+                    store.send(.noisePrepConfirmProposalTapped)
+                }
+                .disabled(store.noisePrep.isSubmitting)
+
+                ZashiButton(
+                    "Cancel",
+                    type: .tertiary
+                ) {
+                    store.send(.noisePrepCancelProposalTapped)
+                }
+                .disabled(store.noisePrep.isSubmitting)
+            }
+        }
+        .padding(Design.Spacing._xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Design.Surfaces.bgPrimary.color(colorScheme))
+        .clipShape(RoundedRectangle(cornerRadius: Design.Radius._2xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: Design.Radius._2xl)
+                .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
+        )
+    }
+
+    // MARK: Note list
+
+    private var noteListCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Current notes")
+                    .zFont(.semiBold, size: 16, style: Design.Text.primary)
+                Spacer()
+                if store.noisePrep.dustCount > 0 {
+                    dustToggle
+                }
+            }
+
+            let displayed = store.noisePrep.displayedNotes
+            if displayed.isEmpty {
+                Text(noteListEmptyMessage)
+                    .zFont(.medium, size: 14, style: Design.Text.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            } else {
+                let sortedNotes = displayed.sorted { $0.value > $1.value }
+                VStack(spacing: 0) {
+                    ForEach(Array(sortedNotes.enumerated()), id: \.element.position) { offset, note in
+                        if offset > 0 {
+                            divider
+                        }
+                        noteRow(note)
+                    }
+                }
+            }
+
+            if store.noisePrep.dustCount > 0 {
+                Text(dustFootnote)
+                    .zFont(.medium, size: 12, style: Design.Text.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(Design.Spacing._xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Design.Surfaces.bgPrimary.color(colorScheme))
+        .clipShape(RoundedRectangle(cornerRadius: Design.Radius._2xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: Design.Radius._2xl)
+                .stroke(Design.Surfaces.strokeSecondary.color(colorScheme), lineWidth: 1)
+        )
+    }
+
+    private var dustToggle: some View {
+        Button {
+            store.send(.noisePrepToggleShowDust(!store.noisePrep.showDustNotes))
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: store.noisePrep.showDustNotes ? "eye.slash" : "eye")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(store.noisePrep.showDustNotes ? "Hide dust" : "Show dust (\(store.noisePrep.dustCount))")
+                    .zFont(.semiBold, size: 13, style: Design.Btns.Ghost.fg)
+            }
+            .foregroundStyle(Design.Btns.Ghost.fg.color(colorScheme))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(store.noisePrep.showDustNotes ? "Hide dust notes" : "Show \(store.noisePrep.dustCount) dust notes")
+    }
+
+    private var noteListEmptyMessage: String {
+        if store.noisePrep.notes.isEmpty {
+            return "No wallet notes found at this scan height."
+        }
+        // We have notes but they're all dust and the toggle is off.
+        return "Only dust notes remain. Tap Show dust to view them."
+    }
+
+    private var dustFootnote: String {
+        let dustZec = VoteNoiseFeature.zecString(store.noisePrep.dustValue)
+        let threshold = VoteNoiseFeature.zecString(VoteNoiseFeature.dustThresholdZatoshi)
+        return "Hidden by default: \(store.noisePrep.dustCount) note(s) ≤ \(threshold) ZEC totalling \(dustZec) ZEC — too small to spend on their own."
+    }
+
+    private func noteRow(_ note: NoteInfo) -> some View {
+        HStack {
+            Text("#\(note.position)")
+                .zFont(.medium, size: 13, style: Design.Text.tertiary)
+                .lineLimit(1)
+            Spacer()
+            Text("\(VoteNoiseFeature.zecString(note.value)) ZEC")
+                .zFont(.semiBold, size: 14, style: Design.Text.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .layoutPriority(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
     }
 }
 

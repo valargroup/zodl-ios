@@ -123,7 +123,25 @@ struct BundleResult {
 enum VoteNoiseFeature {
     static let bundleIdentifier = "co.valargroup.zodl.noise"
     static let defaultTargetNoteValue: UInt64 = ballotDivisor
-    static let maxSplitOutputs = 200
+    /// Hard cap on how many outputs a single Split transaction will create.
+    /// Each output is one Orchard action and proof generation is CPU-heavy on
+    /// device, so 100 is a conservative ceiling. When the wallet's balance
+    /// would produce more, the Split summary tells the user to re-run after
+    /// this transaction confirms.
+    static let maxSplitOutputs = 100
+    /// Notes worth at or below this threshold are non-economic — ZIP-317's
+    /// marginal fee is 5,000 zatoshi per logical action, so spending such a
+    /// note costs at least as much as the note is worth. Hidden from the
+    /// default note list (toggle reveals them) and excluded from the visible
+    /// count, though their value still appears in Total since the planner
+    /// can sweep them when they aggregate to something useful.
+    static let dustThresholdZatoshi: UInt64 = 5_000
+    /// Minimum value the smaller non-dust notes must sum to before Consolidate
+    /// is considered useful. ZIP-317 fees for a 1-output consolidate proposal
+    /// land around 10–30k zatoshi depending on input count; 100,000 zatoshi
+    /// (0.001 ZEC) puts the gain comfortably above the fee floor so the button
+    /// only enables when running it produces a meaningfully larger merged note.
+    static let consolidateMeaningfulMinZatoshi: UInt64 = 100_000
 
     static var isEnabled: Bool {
         Bundle.main.bundleIdentifier == bundleIdentifier
@@ -244,158 +262,6 @@ enum VotingNoiseBundleStoreError: LocalizedError {
             return "Couldn't update voting database: \(message)"
         case .bundleCountOverflow:
             return "Too many note bundles to prepare."
-        }
-    }
-}
-
-enum VotingSpendableNoteStoreError: LocalizedError {
-    case openDatabase(String)
-    case prepare(String)
-    case bind(String)
-    case step(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .openDatabase(let message):
-            return "Couldn't open wallet database: \(message)"
-        case .prepare(let message):
-            return "Couldn't prepare wallet database statement: \(message)"
-        case .bind(let message):
-            return "Couldn't bind wallet database statement: \(message)"
-        case .step(let message):
-            return "Couldn't read current spendable notes: \(message)"
-        }
-    }
-}
-
-enum VotingSpendableNoteStore {
-    private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-    private static let zip317MarginalFeeZatoshi: UInt64 = 5_000
-    private static let defaultTxExpiryDelta: UInt64 = 20
-    private static let scannedPriority: UInt64 = 10
-    private static let chainTipPriority: UInt64 = 50
-    private static let trustedConfirmations: UInt64 = 3
-    private static let untrustedConfirmations: UInt64 = 10
-
-    static func currentSpendableOrchardPositions(
-        walletDbPath: String,
-        accountUUID: [UInt8],
-        targetHeight: UInt64
-    ) throws -> Set<UInt64> {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(walletDbPath, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
-              let db
-        else {
-            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
-            throw VotingSpendableNoteStoreError.openDatabase(message)
-        }
-        defer { sqlite3_close(db) }
-
-        let sql = """
-            SELECT rn.commitment_tree_position
-            FROM orchard_received_notes rn
-            INNER JOIN accounts ON accounts.id = rn.account_id
-            INNER JOIN transactions t ON t.id_tx = rn.transaction_id
-            LEFT OUTER JOIN v_orchard_shards_scan_state scan_state
-                ON rn.commitment_tree_position >= scan_state.start_position
-                AND rn.commitment_tree_position < scan_state.end_position_exclusive
-            WHERE accounts.uuid = :account_uuid
-            AND rn.value > :min_value
-            AND accounts.ufvk IS NOT NULL
-            AND rn.recipient_key_scope IS NOT NULL
-            AND rn.nf IS NOT NULL
-            AND rn.commitment_tree_position IS NOT NULL
-            AND (
-                t.mined_height < :target_height
-                OR t.expiry_height = 0
-                OR t.expiry_height >= :target_height
-                OR (
-                    t.expiry_height IS NULL
-                    AND t.min_observed_height + :expiry_delta >= :target_height
-                )
-            )
-            AND rn.id NOT IN (
-                SELECT rns.orchard_received_note_id
-                FROM orchard_received_note_spends rns
-                JOIN transactions stx ON stx.id_tx = rns.transaction_id
-                WHERE stx.mined_height < :target_height
-                OR stx.expiry_height = 0
-                OR stx.expiry_height >= :target_height
-                OR (
-                    stx.expiry_height IS NULL
-                    AND stx.min_observed_height + :expiry_delta >= :target_height
-                )
-            )
-            AND (
-                rn.witness_stabilized = 1
-                OR IFNULL(scan_state.max_priority, :chain_tip_priority) <= :scanned_priority
-            )
-            AND t.mined_height IS NOT NULL
-            AND (
-                CASE
-                    WHEN rn.recipient_key_scope = 1 OR IFNULL(t.trust_status, 0) = 1 THEN
-                        t.mined_height + :trusted_confirmations <= :target_height
-                    ELSE
-                        t.mined_height + :untrusted_confirmations <= :target_height
-                END
-            )
-            ORDER BY rn.commitment_tree_position
-            """
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
-              let statement
-        else {
-            throw VotingSpendableNoteStoreError.prepare(String(cString: sqlite3_errmsg(db)))
-        }
-        defer { sqlite3_finalize(statement) }
-
-        try bindBlob(statement, name: ":account_uuid", bytes: accountUUID)
-        try bindInt64(statement, name: ":min_value", value: zip317MarginalFeeZatoshi)
-        try bindInt64(statement, name: ":target_height", value: targetHeight)
-        try bindInt64(statement, name: ":expiry_delta", value: defaultTxExpiryDelta)
-        try bindInt64(statement, name: ":chain_tip_priority", value: chainTipPriority)
-        try bindInt64(statement, name: ":scanned_priority", value: scannedPriority)
-        try bindInt64(statement, name: ":trusted_confirmations", value: trustedConfirmations)
-        try bindInt64(statement, name: ":untrusted_confirmations", value: untrustedConfirmations)
-
-        var positions = Set<UInt64>()
-        while true {
-            let result = sqlite3_step(statement)
-            if result == SQLITE_ROW {
-                let rawPosition = sqlite3_column_int64(statement, 0)
-                guard rawPosition >= 0 else {
-                    throw VotingSpendableNoteStoreError.step("negative note position \(rawPosition)")
-                }
-                positions.insert(UInt64(rawPosition))
-            } else if result == SQLITE_DONE {
-                return positions
-            } else {
-                throw VotingSpendableNoteStoreError.step(String(cString: sqlite3_errmsg(db)))
-            }
-        }
-    }
-
-    private static func bindBlob(_ statement: OpaquePointer, name: String, bytes: [UInt8]) throws {
-        let index = sqlite3_bind_parameter_index(statement, name)
-        guard index > 0 else {
-            throw VotingSpendableNoteStoreError.bind(name)
-        }
-        let result = bytes.withUnsafeBytes { rawBuffer in
-            sqlite3_bind_blob(statement, index, rawBuffer.baseAddress, Int32(bytes.count), transient)
-        }
-        guard result == SQLITE_OK else {
-            throw VotingSpendableNoteStoreError.bind(name)
-        }
-    }
-
-    private static func bindInt64(_ statement: OpaquePointer, name: String, value: UInt64) throws {
-        let index = sqlite3_bind_parameter_index(statement, name)
-        guard index > 0,
-              value <= UInt64(Int64.max),
-              sqlite3_bind_int64(statement, index, Int64(value)) == SQLITE_OK
-        else {
-            throw VotingSpendableNoteStoreError.bind(name)
         }
     }
 }
