@@ -182,8 +182,6 @@ struct NoisePrepView: View {
                         syncingBanner
                     } else if let error = store.noisePrep.errorMessage {
                         banner(text: error, style: .error)
-                    } else if let status = store.noisePrep.statusMessage {
-                        banner(text: status, style: .info)
                     }
                     actionSection
                     noteListCard
@@ -217,13 +215,16 @@ struct NoisePrepView: View {
                     }
                 }
                 Spacer()
+                if store.noisePrep.dustCount > 0 {
+                    dustToggleIconButton
+                }
                 refreshControl
             }
 
             VStack(spacing: 10) {
                 metricRow("Total", value: "\(VoteNoiseFeature.zecString(store.noisePrep.totalValue)) ZEC")
                 divider
-                metricRow("Wallet notes", value: "\(store.noisePrep.notes.count)")
+                metricRow("Wallet notes", value: "\(store.noisePrep.displayedNotes.count)")
                 divider
                 metricRow(
                     "Notes ≥ \(VoteNoiseFeature.zecString(store.noisePrep.displayTargetNoteValue)) ZEC",
@@ -300,8 +301,6 @@ struct NoisePrepView: View {
                 Text("ZEC")
                     .zFont(.medium, size: 14, style: Design.Text.tertiary)
             }
-            Text("Split uses this target. Each Zodl Noise ballot needs one 0.125 ZEC note.")
-                .zFont(.medium, size: 12, style: Design.Text.tertiary)
         }
     }
 
@@ -496,14 +495,8 @@ struct NoisePrepView: View {
 
     private var noteListCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Current notes")
-                    .zFont(.semiBold, size: 16, style: Design.Text.primary)
-                Spacer()
-                if store.noisePrep.dustCount > 0 {
-                    dustToggle
-                }
-            }
+            Text("Current notes")
+                .zFont(.semiBold, size: 16, style: Design.Text.primary)
 
             let displayed = store.noisePrep.displayedNotes
             if displayed.isEmpty {
@@ -522,12 +515,6 @@ struct NoisePrepView: View {
                     }
                 }
             }
-
-            if store.noisePrep.dustCount > 0 {
-                Text(dustFootnote)
-                    .zFont(.medium, size: 12, style: Design.Text.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
         .padding(Design.Spacing._xl)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -539,20 +526,27 @@ struct NoisePrepView: View {
         )
     }
 
-    private var dustToggle: some View {
-        Button {
-            store.send(.noisePrepToggleShowDust(!store.noisePrep.showDustNotes))
+    private var dustToggleIconButton: some View {
+        let count = store.noisePrep.dustCount
+        let dustZec = VoteNoiseFeature.zecString(store.noisePrep.dustValue)
+        let showing = store.noisePrep.showDustNotes
+        return Button {
+            store.send(.noisePrepToggleShowDust(!showing))
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: store.noisePrep.showDustNotes ? "eye.slash" : "eye")
-                    .font(.system(size: 12, weight: .semibold))
-                Text(store.noisePrep.showDustNotes ? "Hide dust" : "Show dust (\(store.noisePrep.dustCount))")
-                    .zFont(.semiBold, size: 13, style: Design.Btns.Ghost.fg)
-            }
-            .foregroundStyle(Design.Btns.Ghost.fg.color(colorScheme))
+            Image(systemName: showing ? "eye.slash" : "eye")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Design.Text.primary.color(colorScheme))
+                .frame(width: 36, height: 36)
+                .background(
+                    Circle()
+                        .fill(Design.Surfaces.bgSecondary.color(colorScheme))
+                )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(store.noisePrep.showDustNotes ? "Hide dust notes" : "Show \(store.noisePrep.dustCount) dust notes")
+        .accessibilityLabel(showing
+            ? "Hide \(count) dust notes worth \(dustZec) ZEC"
+            : "Show \(count) dust notes worth \(dustZec) ZEC"
+        )
     }
 
     private var noteListEmptyMessage: String {
@@ -560,13 +554,7 @@ struct NoisePrepView: View {
             return "No wallet notes found at this scan height."
         }
         // We have notes but they're all dust and the toggle is off.
-        return "Only dust notes remain. Tap Show dust to view them."
-    }
-
-    private var dustFootnote: String {
-        let dustZec = VoteNoiseFeature.zecString(store.noisePrep.dustValue)
-        let threshold = VoteNoiseFeature.zecString(VoteNoiseFeature.dustThresholdZatoshi)
-        return "Hidden by default: \(store.noisePrep.dustCount) note(s) ≤ \(threshold) ZEC totalling \(dustZec) ZEC — too small to spend on their own."
+        return "Only dust notes remain. Tap Show dust above to view them."
     }
 
     private func noteRow(_ note: NoteInfo) -> some View {
