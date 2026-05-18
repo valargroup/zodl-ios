@@ -300,7 +300,7 @@ struct NoisePrepView: View {
                 Text("ZEC")
                     .zFont(.medium, size: 14, style: Design.Text.tertiary)
             }
-            Text("Split uses this target. Voting always uses exact 0.125 ZEC notes.")
+            Text("Split uses this target. Each Zodl Noise ballot needs one 0.125 ZEC note.")
                 .zFont(.medium, size: 12, style: Design.Text.tertiary)
         }
     }

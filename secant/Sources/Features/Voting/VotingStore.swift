@@ -1346,9 +1346,10 @@ struct Voting {
             return .none
 
         case let .noisePrepTargetNoteValueChanged(value):
-            state.noisePrep.targetNoteValueText = value
+            let sanitized = VoteNoiseFeature.sanitizeNoteValueInput(value)
+            state.noisePrep.targetNoteValueText = sanitized
             state.noisePrep.pendingOperation = nil
-            if let target = VoteNoiseFeature.parseZatoshi(value) {
+            if let target = VoteNoiseFeature.parseZatoshi(sanitized) {
                 VoteNoiseSettings.setTargetNoteValue(target)
                 state.noisePrep.errorMessage = nil
             }

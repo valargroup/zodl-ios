@@ -159,6 +159,24 @@ enum VoteNoiseFeature {
         return "\(whole).\(fractionalText)"
     }
 
+    /// Strip everything except digits and a single decimal point from typed
+    /// input. `decimalPad` only gates the soft keyboard — paste, hardware
+    /// keyboards, and dictation can all still inject letters or extra dots,
+    /// so the reducer scrubs the text on its way in.
+    static func sanitizeNoteValueInput(_ text: String) -> String {
+        var seenDot = false
+        var result = ""
+        for ch in text {
+            if ch.isASCII, ch.isNumber {
+                result.append(ch)
+            } else if ch == "." && !seenDot {
+                result.append(ch)
+                seenDot = true
+            }
+        }
+        return result
+    }
+
     static func parseZatoshi(_ text: String) -> UInt64? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
