@@ -308,14 +308,20 @@ struct NoisePrepView: View {
                     HStack {
                         Text("#\(note.position)")
                             .zFont(.medium, size: 13, style: Design.Text.tertiary)
+                            .lineLimit(1)
                         Spacer()
                         Text("\(VoteNoiseFeature.zecString(note.value)) ZEC")
                             .zFont(.semiBold, size: 14, style: Design.Text.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .layoutPriority(1)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 6)
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var advancedSection: some View {

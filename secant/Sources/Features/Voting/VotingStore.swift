@@ -1166,12 +1166,15 @@ struct Voting {
             let walletDbPath = databaseFiles.dataDbURLFor(network).path
             let networkId = network.networkType.votingRustNetworkId
             return .run { [sdkSynchronizer, votingCrypto] send in
-                let latestHeight = UInt64(sdkSynchronizer.latestState().fullyScannedHeight)
+                let latestState = sdkSynchronizer.latestState()
+                let latestHeight = UInt64(latestState.fullyScannedHeight)
                 let snapshotHeight = latestHeight > 0 ? latestHeight : nil
                 guard let snapshotHeight else {
                     await send(.noisePrepFailed(String(localized: "The wallet has not scanned far enough to inspect notes yet.")))
                     return
                 }
+                let latestBlockHeight = UInt64(latestState.latestBlockHeight)
+                let targetHeight = latestBlockHeight > 0 ? latestBlockHeight + 1 : snapshotHeight + 1
 
                 let notes = try await votingCrypto.getWalletNotes(
                     walletDbPath,
@@ -1179,7 +1182,15 @@ struct Voting {
                     networkId,
                     accountUUID
                 )
-                await send(.noisePrepNotesLoaded(notes, snapshotHeight))
+                let spendablePositions = try VotingSpendableNoteStore.currentSpendableOrchardPositions(
+                    walletDbPath: walletDbPath,
+                    accountUUID: accountUUID,
+                    targetHeight: targetHeight
+                )
+                await send(.noisePrepNotesLoaded(
+                    notes.filter { spendablePositions.contains($0.position) },
+                    snapshotHeight
+                ))
             } catch: { error, send in
                 await send(.noisePrepFailed(error.localizedDescription))
             }
@@ -1189,7 +1200,7 @@ struct Voting {
             state.noisePrep.snapshotHeight = snapshotHeight
             state.noisePrep.isLoading = false
             state.noisePrep.errorMessage = nil
-            state.noisePrep.statusMessage = "Loaded \(notes.count) current notes at scan height \(snapshotHeight)."
+            state.noisePrep.statusMessage = "Loaded \(notes.count) current spendable notes at scan height \(snapshotHeight)."
             return .none
 
         case let .noisePrepFailed(message):
