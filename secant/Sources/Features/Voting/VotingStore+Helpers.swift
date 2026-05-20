@@ -1,5 +1,6 @@
 import Foundation
 import ComposableArchitecture
+@preconcurrency import ZcashLightClientKit
 
 // MARK: - Draft Persistence
 
@@ -119,69 +120,24 @@ struct BundleResult {
 }
 
 extension Array where Element == NoteInfo {
-    /// Value-aware bundling using greedy min-total assignment.
-    ///
-    /// Mirrors the Rust peer `chunk_notes` (see
-    /// `zcash_voting/zcash_voting/src/types.rs` — function `chunk_notes`) for
-    /// client-side use. The numbered steps in the body track that function
-    /// one-to-one:
-    /// 1. Sort notes by value DESC, then position ASC as tiebreaker
-    /// 2. Fill bundles sequentially to capacity (5 notes each)
-    /// 3. Drop bundles with total < ballotDivisor
-    /// 4. Re-sort notes within each surviving bundle by position
-    /// 5. Sort surviving bundles by total value DESC (min position as tiebreaker)
-    func smartBundles() -> BundleResult {
-        guard !isEmpty else {
-            return BundleResult(bundles: [], eligibleWeight: 0, droppedCount: 0)
+    /// Value-aware bundle planning delegated to the shared SDK policy.
+    func plannedVotingBundles() throws -> BundleResult {
+        let plan = try VotingRustBackend.planNoteBundles(notes: map { $0.toSDK() })
+        return BundleResult(
+            bundles: plan.bundles.map { $0.map(NoteInfo.init(sdk:)) },
+            eligibleWeight: plan.eligibleWeight,
+            droppedCount: Int(clamping: plan.droppedCount)
+        )
+    }
+
+    /// Non-throwing convenience for UI-derived display strings.
+    func plannedVotingBundlesOrEmpty() -> BundleResult {
+        do {
+            return try plannedVotingBundles()
+        } catch {
+            votingLogger.error("Failed to plan voting bundles: \(error)")
+            return BundleResult(bundles: [], eligibleWeight: 0, droppedCount: count)
         }
-
-        // Step 1: Sort by value DESC, then position ASC
-        let sorted = self.sorted { lhs, rhs in
-            if lhs.value != rhs.value { return lhs.value > rhs.value }
-            return lhs.position < rhs.position
-        }
-
-        // Step 2: Fill bundles sequentially to capacity (5 notes each)
-        var bundleNotes: [[NoteInfo]] = []
-        var bundleTotals: [UInt64] = []
-
-        for note in sorted {
-            if bundleNotes.isEmpty || (bundleNotes.last?.count ?? 0) >= 5 {
-                bundleNotes.append([])
-                bundleTotals.append(0)
-            }
-            let last = bundleNotes.count - 1
-            bundleTotals[last] += note.value
-            bundleNotes[last].append(note)
-        }
-
-        // Step 3: Drop bundles with total < ballotDivisor
-        let numBundles = bundleNotes.count
-        var surviving: [(total: UInt64, notes: [NoteInfo])] = []
-        var eligibleWeight: UInt64 = 0
-        var survivingNoteCount = 0
-
-        for i in 0..<numBundles where bundleTotals[i] >= ballotDivisor {
-            surviving.append((bundleTotals[i], bundleNotes[i]))
-            eligibleWeight += quantizeWeight(bundleTotals[i])
-            survivingNoteCount += bundleNotes[i].count
-        }
-        let droppedCount = count - survivingNoteCount
-
-        // Step 5: Re-sort notes within each surviving bundle by position
-        for i in 0..<surviving.count {
-            surviving[i].notes.sort { $0.position < $1.position }
-        }
-
-        // Step 6: Sort surviving bundles by total value DESC (min position as tiebreaker).
-        // This ensures bundle 0 is always the most valuable, enabling users to skip
-        // low-value trailing bundles during Keystone signing.
-        surviving.sort { lhs, rhs in
-            if lhs.total != rhs.total { return lhs.total > rhs.total }
-            return (lhs.notes.first?.position ?? .max) < (rhs.notes.first?.position ?? .max)
-        }
-
-        return BundleResult(bundles: surviving.map(\.notes), eligibleWeight: eligibleWeight, droppedCount: droppedCount)
     }
 }
 

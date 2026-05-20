@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import ZcashLightClientKit
 
 // MARK: - Ballot Constants
 
@@ -705,6 +706,36 @@ struct NoteInfo: Equatable, Sendable {
         self.rseed = rseed
         self.scope = scope
         self.ufvkStr = ufvkStr
+    }
+}
+
+extension NoteInfo {
+    init(sdk note: VotingNoteInfo) {
+        self.init(
+            commitment: Data(note.commitment),
+            nullifier: Data(note.nullifier),
+            value: note.value,
+            position: note.position,
+            diversifier: Data(note.diversifier),
+            rho: Data(note.rho),
+            rseed: Data(note.rseed),
+            scope: note.scope,
+            ufvkStr: note.ufvkStr
+        )
+    }
+
+    func toSDK() -> VotingNoteInfo {
+        VotingNoteInfo(
+            commitment: [UInt8](commitment),
+            nullifier: [UInt8](nullifier),
+            value: value,
+            position: position,
+            diversifier: [UInt8](diversifier),
+            rho: [UInt8](rho),
+            rseed: [UInt8](rseed),
+            scope: scope,
+            ufvkStr: ufvkStr
+        )
     }
 }
 

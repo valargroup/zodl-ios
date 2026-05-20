@@ -109,24 +109,7 @@ extension VotingCryptoClient: DependencyKey {
                     snapshotHeight: snapshotHeight,
                     networkId: networkId
                 )
-                return notes.map { (note: VotingNoteInfo) -> NoteInfo in
-                    let commitment: Data = Data(note.commitment)
-                    let nullifier: Data = Data(note.nullifier)
-                    let diversifier: Data = Data(note.diversifier)
-                    let rho: Data = Data(note.rho)
-                    let rseed: Data = Data(note.rseed)
-                    return NoteInfo(
-                        commitment: commitment,
-                        nullifier: nullifier,
-                        value: note.value,
-                        position: note.position,
-                        diversifier: diversifier,
-                        rho: rho,
-                        rseed: rseed,
-                        scope: note.scope,
-                        ufvkStr: note.ufvkStr
-                    )
-                }
+                return notes.map(NoteInfo.init(sdk:))
             },
             setupBundles: { roundId, notes in
                 let backend = try await dbActor.backend()
@@ -811,27 +794,6 @@ private extension VotingVanWitness {
         )
         let data = try JSONEncoder().encode(wire)
         return try JSONDecoder().decode(VotingVanWitness.self, from: data)
-    }
-}
-
-private extension NoteInfo {
-    func toSDK() -> VotingNoteInfo {
-        let commitmentBytes: [UInt8] = [UInt8](commitment)
-        let nullifierBytes: [UInt8] = [UInt8](nullifier)
-        let diversifierBytes: [UInt8] = [UInt8](diversifier)
-        let rhoBytes: [UInt8] = [UInt8](rho)
-        let rseedBytes: [UInt8] = [UInt8](rseed)
-        return VotingNoteInfo(
-            commitment: commitmentBytes,
-            nullifier: nullifierBytes,
-            value: value,
-            position: position,
-            diversifier: diversifierBytes,
-            rho: rhoBytes,
-            rseed: rseedBytes,
-            scope: scope,
-            ufvkStr: ufvkStr
-        )
     }
 }
 

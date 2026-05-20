@@ -494,7 +494,7 @@ struct Voting {
         /// Quantized ZEC value for the current Keystone bundle.
         var currentBundleZECString: String? {
             guard isKeystoneUser, bundleCount > 1 else { return nil }
-            let bundles = walletNotes.smartBundles().bundles
+            let bundles = walletNotes.plannedVotingBundlesOrEmpty().bundles
             let idx = Int(currentKeystoneBundleIndex)
             guard idx < bundles.count else { return nil }
             let raw = bundles[idx].reduce(UInt64(0)) { $0 + $1.value }
@@ -504,7 +504,7 @@ struct Voting {
 
         /// Quantized ZEC weight already signed across collected Keystone bundle signatures.
         var signedBundlesZECString: String {
-            let bundles = walletNotes.smartBundles().bundles
+            let bundles = walletNotes.plannedVotingBundlesOrEmpty().bundles
             let signedWeight = keystoneBundleSignatures.indices.reduce(UInt64(0)) { total, i in
                 guard i < bundles.count else { return total }
                 let raw = bundles[i].reduce(UInt64(0)) { $0 + $1.value }
@@ -515,7 +515,7 @@ struct Voting {
 
         /// Quantized ZEC weight in unsigned bundles that would be given up by skipping.
         var skippedBundlesZECString: String {
-            let bundles = walletNotes.smartBundles().bundles
+            let bundles = walletNotes.plannedVotingBundlesOrEmpty().bundles
             let signedCount = keystoneBundleSignatures.count
             let skippedWeight = (signedCount..<bundles.count).reduce(UInt64(0)) { total, i in
                 let raw = bundles[i].reduce(UInt64(0)) { $0 + $1.value }
@@ -527,7 +527,7 @@ struct Voting {
         /// Raw ZEC weight for the memo — per-bundle for Keystone multi-bundle, total otherwise.
         var memoWeightZatoshi: UInt64 {
             if isKeystoneUser, bundleCount > 1 {
-                let bundles = walletNotes.smartBundles().bundles
+                let bundles = walletNotes.plannedVotingBundlesOrEmpty().bundles
                 let idx = Int(currentKeystoneBundleIndex)
                 if idx < bundles.count {
                     return bundles[idx].reduce(UInt64(0)) { $0 + $1.value }

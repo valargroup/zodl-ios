@@ -132,7 +132,7 @@ extension Voting {
                 votingLogger.debug("Tree state fetch: \(fetchMs)ms")
 
                 // Phase 2: Generate witnesses per-bundle (includes Rust-side verification)
-                let noteChunks = notes.smartBundles().bundles
+                let noteChunks = try notes.plannedVotingBundles().bundles
                 var allWitnesses: [WitnessData] = []
                 for bundleIndex in 0..<bundleCount {
                     let chunkNotes = noteChunks[Int(bundleIndex)]
@@ -197,9 +197,9 @@ extension Voting {
             state.witnessStatus = .completed
             state.bundleCount = bundleCount
             // If bundles were previously skipped, the DB count is less than the
-            // total from smartBundles(). Recalculate votingWeight to reflect only
+            // total from planned bundles. Recalculate votingWeight to reflect only
             // the kept bundles (quantized per bundle).
-            let allBundles = state.walletNotes.smartBundles().bundles
+            let allBundles = state.walletNotes.plannedVotingBundlesOrEmpty().bundles
             if bundleCount > 0, Int(bundleCount) < allBundles.count {
                 state.votingWeight = (0..<Int(bundleCount)).reduce(UInt64(0)) { total, i in
                     let raw = allBundles[i].reduce(UInt64(0)) { $0 + $1.value }
@@ -257,9 +257,9 @@ extension Voting {
         case .bundleCountRestored(let count):
             state.bundleCount = count
             // If bundles were previously skipped, the DB count is less than the
-            // total from smartBundles(). Recalculate votingWeight to reflect only
+            // total from planned bundles. Recalculate votingWeight to reflect only
             // the kept bundles (quantized per bundle).
-            let allBundles = state.walletNotes.smartBundles().bundles
+            let allBundles = state.walletNotes.plannedVotingBundlesOrEmpty().bundles
             if count > 0, Int(count) < allBundles.count {
                 state.votingWeight = (0..<Int(count)).reduce(UInt64(0)) { total, i in
                     let raw = allBundles[i].reduce(UInt64(0)) { $0 + $1.value }
@@ -385,7 +385,7 @@ extension Voting {
             return .run { [votingCrypto, mnemonic, walletStorage] send in
                 let hotkeyPhrase = try walletStorage.exportVotingHotkey("").seedPhrase.value()
                 let hotkeySeed = try mnemonic.toSeed(hotkeyPhrase)
-                let noteChunks = cachedNotes.smartBundles().bundles
+                let noteChunks = try cachedNotes.plannedVotingBundles().bundles
                 guard Int(bundleCount) <= noteChunks.count else {
                     throw "Delegation precompute bundle count exceeds prepared note bundles"
                 }
@@ -552,7 +552,7 @@ extension Voting {
                             // Build voting PCZT for the current bundle — its single Orchard
                             // action IS the voting dummy action, so Keystone's SpendAuth
                             // signature will verify against the PCZT's ZIP-244 sighash.
-                            let noteChunks = cachedNotes.smartBundles().bundles
+                            let noteChunks = try cachedNotes.plannedVotingBundles().bundles
                             let bundleNotes = noteChunks[Int(keystoneBundleIndex)]
                             // Extract Orchard FVK from the note's UFVK so the PCZT uses
                             // Keystone's ak (matching what the ZKP prover derives from the
@@ -755,7 +755,7 @@ extension Voting {
                     let senderSeed = try mnemonic.toSeed(senderPhrase)
                     let hotkeyPhrase = try walletStorage.exportVotingHotkey("").seedPhrase.value()
                     let hotkeySeed = try mnemonic.toSeed(hotkeyPhrase)
-                    let noteChunks = cachedNotes.smartBundles().bundles
+                    let noteChunks = try cachedNotes.plannedVotingBundles().bundles
                     var completedBundles = Set<UInt32>()
                     for idx: UInt32 in 0..<UInt32(signedCount) {
                         if let vanPosition = try await Self.recoverDelegationVanPosition(
@@ -894,7 +894,7 @@ extension Voting {
             state.bundleCount = signedCount
 
             // Recalculate votingWeight to reflect only signed bundles' quantized weight
-            let bundles = state.walletNotes.smartBundles().bundles
+            let bundles = state.walletNotes.plannedVotingBundlesOrEmpty().bundles
             let signedWeight = state.keystoneBundleSignatures.indices.reduce(UInt64(0)) { total, i in
                 guard i < bundles.count else { return total }
                 let raw = bundles[i].reduce(UInt64(0)) { $0 + $1.value }
@@ -1019,7 +1019,7 @@ extension Voting {
         delegationConfirmationTimeout: TimeInterval = 90,
         delegationConfirmationRetryDelay: Duration = .seconds(2)
     ) async throws {
-        let noteChunks = cachedNotes.smartBundles().bundles
+        let noteChunks = try cachedNotes.plannedVotingBundles().bundles
         let bundleCount = UInt32(noteChunks.count)
         var completedBundles = Set<UInt32>()
         for idx: UInt32 in 0..<bundleCount {
