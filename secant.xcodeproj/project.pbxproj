@@ -9462,10 +9462,10 @@
 		};
 		9E4841512F869F5E00D0649B /* XCRemoteSwiftPackageReference "zcash-swift-wallet-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/zcash/zcash-swift-wallet-sdk.git";
+			repositoryURL = "https://github.com/valargroup/zcash-swift-wallet-sdk.git";
 			requirement = {
-				kind = revision;
-				revision = 909c7c5743f14a211f9f69f97ed08c05b55c2cd5;
+				branch = "adam/update-zcash-voting-0.9.1-policy";
+				kind = branch;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

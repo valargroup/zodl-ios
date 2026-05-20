@@ -680,8 +680,8 @@ final class ShareRecoveryPollingTests: XCTestCase {
             createdAt: 100
         )
 
-        XCTAssertFalse(isShareReadyForStatusCheck(share, now: 109, checkGrace: 10))
-        XCTAssertTrue(isShareReadyForStatusCheck(share, now: 110, checkGrace: 10))
+        XCTAssertFalse(isShareReadyForStatusCheck(share, now: 109))
+        XCTAssertTrue(isShareReadyForStatusCheck(share, now: 110))
         XCTAssertFalse(shouldResubmitShare(share, now: 129, voteEndTime: 200))
         XCTAssertTrue(shouldResubmitShare(share, now: 130, voteEndTime: 200))
     }
@@ -693,18 +693,24 @@ final class ShareRecoveryPollingTests: XCTestCase {
             createdAt: 100
         )
 
-        XCTAssertFalse(isShareReadyForStatusCheck(share, now: 209, checkGrace: 10))
-        XCTAssertTrue(isShareReadyForStatusCheck(share, now: 210, checkGrace: 10))
+        XCTAssertFalse(isShareReadyForStatusCheck(share, now: 209))
+        XCTAssertTrue(isShareReadyForStatusCheck(share, now: 210))
         XCTAssertFalse(shouldResubmitShare(share, now: 229, voteEndTime: 320))
         XCTAssertTrue(shouldResubmitShare(share, now: 230, voteEndTime: 320))
     }
 }
 
 final class ShareResubmissionFallbackTests: XCTestCase {
-    func testResubmissionTriesUntriedHelpersFirst() async {
+    private static func untriedFirstOrder(configured: [String], sent: [String]) -> [String] {
+        let sentSet = Set(sent)
+        return configured.filter { !sentSet.contains($0) }
+            + configured.filter { sentSet.contains($0) }
+    }
+
+    func testResubmissionTriesUntriedHelpersFirst() async throws {
         let recorder = SharePostRecorder()
 
-        let acceptedServers = await resubmitSharePayload(
+        let acceptedServers = try await resubmitSharePayload(
             makeRecoverySharePayload(),
             roundIdHex: "aabb",
             configuredServerURLs: [
@@ -715,7 +721,7 @@ final class ShareResubmissionFallbackTests: XCTestCase {
             postShare: { server, _ in
                 await recorder.record(server)
             },
-            orderServers: { $0 }
+            orderServers: Self.untriedFirstOrder
         )
 
         XCTAssertEqual(acceptedServers, ["https://untried.example.com"])
@@ -723,10 +729,10 @@ final class ShareResubmissionFallbackTests: XCTestCase {
         XCTAssertEqual(postedServers, ["https://untried.example.com"])
     }
 
-    func testResubmissionFallsBackToAlreadySentHelperWhenUntriedFails() async {
+    func testResubmissionFallsBackToAlreadySentHelperWhenUntriedFails() async throws {
         let recorder = SharePostRecorder()
 
-        let acceptedServers = await resubmitSharePayload(
+        let acceptedServers = try await resubmitSharePayload(
             makeRecoverySharePayload(),
             roundIdHex: "aabb",
             configuredServerURLs: [
@@ -740,7 +746,7 @@ final class ShareResubmissionFallbackTests: XCTestCase {
                     throw SharePostFailure()
                 }
             },
-            orderServers: { $0 }
+            orderServers: Self.untriedFirstOrder
         )
 
         XCTAssertEqual(acceptedServers, ["https://already-sent.example.com"])
@@ -751,10 +757,10 @@ final class ShareResubmissionFallbackTests: XCTestCase {
         ])
     }
 
-    func testResubmissionReturnsEmptyWhenAllHelpersFail() async {
+    func testResubmissionReturnsEmptyWhenAllHelpersFail() async throws {
         let recorder = SharePostRecorder()
 
-        let acceptedServers = await resubmitSharePayload(
+        let acceptedServers = try await resubmitSharePayload(
             makeRecoverySharePayload(),
             roundIdHex: "aabb",
             configuredServerURLs: [
@@ -766,7 +772,7 @@ final class ShareResubmissionFallbackTests: XCTestCase {
                 await recorder.record(server)
                 throw SharePostFailure()
             },
-            orderServers: { $0 }
+            orderServers: Self.untriedFirstOrder
         )
 
         XCTAssertTrue(acceptedServers.isEmpty)
@@ -779,6 +785,28 @@ final class ShareResubmissionFallbackTests: XCTestCase {
 }
 
 final class ShareDelegationPostFallbackTests: XCTestCase {
+    func testPlannedHelperTargetsAreUsedForInitialDelivery() async throws {
+        let recorder = SharePostRecorder()
+        let payload = Self.makePayload(index: 0, targetServers: ["https://planned.example.com"])
+
+        let result = try await delegateSharePayloads(
+            [payload],
+            roundIdHex: "aabb",
+            initialServerURLs: [
+                "https://fallback.example.com",
+                "https://planned.example.com"
+            ],
+            postShare: { server, _ in
+                await recorder.record(server)
+            },
+            selectTargets: { servers, _ in [servers[0]] }
+        )
+
+        let postedServers = await recorder.servers()
+        XCTAssertEqual(postedServers, ["https://planned.example.com"])
+        XCTAssertEqual(result.delegatedShares.first?.acceptedByServers, ["https://planned.example.com"])
+    }
+
     func testSelectedHelperFailureBackfillsSameShareAndPrunesFailedHelper() async throws {
         let recorder = SharePostRecorder()
         let payload = Self.makePayload(index: 0)
@@ -902,7 +930,7 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
         }
     }
 
-    private static func makePayload(index: UInt32) -> SharePayload {
+    private static func makePayload(index: UInt32, targetServers: [String] = []) -> SharePayload {
         let share = EncryptedShare(
             c1: Data(repeating: UInt8(index + 1), count: 32),
             c2: Data(repeating: UInt8(index + 2), count: 32),
@@ -917,7 +945,8 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
             allEncShares: [share],
             shareComms: [Data(repeating: 0x03, count: 32)],
             primaryBlind: Data(repeating: 0x04, count: 32),
-            submitAt: 0
+            submitAt: 0,
+            targetServers: targetServers
         )
     }
 }
@@ -1389,6 +1418,16 @@ final class VotingSubmissionPostFallbackTests: XCTestCase {
                 voteDecision: choice.index,
                 treePosition: treePosition
             )]
+        }
+        votingCrypto.planShareSubmissions = { shareCount, serverURLs, _, _, _, _ in
+            let targetCount = max(1, (serverURLs.count + 1) / 2)
+            return (0..<shareCount).map { _ in
+                VotingShareSubmissionPlan(
+                    submitAt: 0,
+                    targetCount: UInt64(targetCount),
+                    targetServers: Array(serverURLs.prefix(targetCount))
+                )
+            }
         }
         votingCrypto.computeShareNullifier = { _, _, _ in String(repeating: "00", count: 32) }
         votingCrypto.recordShareDelegation = { _, _, _, _, _, _, _ in }

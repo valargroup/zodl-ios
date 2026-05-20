@@ -3,6 +3,15 @@ import ComposableArchitecture
 @preconcurrency import ZcashLightClientKit
 import os
 
+private struct ShareSubmissionPlanCountMismatch: LocalizedError {
+    let expected: Int
+    let actual: Int
+
+    var errorDescription: String? {
+        "Share submission policy returned \(actual) plan(s) for \(expected) payload(s)."
+    }
+}
+
 // MARK: - Batch Voting Submission
 
 extension Voting {
@@ -83,25 +92,19 @@ extension Voting {
                 !voteServerURLs.isEmpty,
                 let pirEndpoints = state.serviceConfig?.pirEndpoints.map(\.url),
                 !pirEndpoints.isEmpty,
-                let expectedSnapshotHeight = state.activeSession?.snapshotHeight
+                let activeSession = state.activeSession
             else {
                 votingLogger.error("serviceConfig/activeSession unexpectedly nil during vote submission; aborting")
                 return .none
             }
+            let expectedSnapshotHeight = activeSession.snapshotHeight
             let bundleCount = state.bundleCount
-            let singleShare = state.activeSession?.isLastMoment ?? false
+            let singleShare = activeSession.isLastMoment
+            let voteEndTimeSeconds = UInt64(activeSession.voteEndTime.timeIntervalSince1970)
+            let lastMomentBufferSeconds = activeSession.lastMomentBuffer.flatMap { $0 > 0 ? UInt64($0) : nil }
             let proposals = state.votingRound.proposals
             let cachedNotes = state.walletNotes
             let roundName = state.votingRound.title
-
-            let submitAtDeadline: Double?
-            if singleShare {
-                submitAtDeadline = nil
-            } else if let session = state.activeSession, let buffer = session.lastMomentBuffer {
-                submitAtDeadline = session.voteEndTime.timeIntervalSince1970 - buffer
-            } else {
-                submitAtDeadline = nil
-            }
 
             return .run { [backgroundTask, votingAPI, votingCrypto, mnemonic, walletStorage] send in
                 let bgTaskId = await backgroundTask.beginTask("Batch vote submission")
@@ -217,14 +220,15 @@ extension Voting {
                                             var payloads = try await votingCrypto.buildSharePayloads(
                                                 savedBundle.encShares, savedBundle, choice, numOptions, vcIdx, singleShare
                                             )
-                                            let now = Date().timeIntervalSince1970
-                                            for i in payloads.indices {
-                                                if let deadline = submitAtDeadline, deadline > now {
-                                                    payloads[i].submitAt = UInt64(now + Double.random(in: 0..<(deadline - now)))
-                                                } else {
-                                                    payloads[i].submitAt = 0
-                                                }
-                                            }
+                                            try await Self.applyShareSubmissionPolicy(
+                                                to: &payloads,
+                                                serverURLs: shareServerURLs,
+                                                nowSeconds: UInt64(Date().timeIntervalSince1970),
+                                                voteEndTimeSeconds: voteEndTimeSeconds,
+                                                lastMomentBufferSeconds: lastMomentBufferSeconds,
+                                                singleShare: singleShare,
+                                                votingCrypto: votingCrypto
+                                            )
                                             let recoveryResult = try await Self.delegateSharesWithFallback(
                                                 payloads,
                                                 roundId: roundId,
@@ -317,14 +321,15 @@ extension Voting {
                             var payloads = try await votingCrypto.buildSharePayloads(
                                 builtBundle.encShares, builtBundle, choice, numOptions, vcIdx, singleShare
                             )
-                            let nowSec = Date().timeIntervalSince1970
-                            for i in payloads.indices {
-                                if let deadline = submitAtDeadline, deadline > nowSec {
-                                    payloads[i].submitAt = UInt64(nowSec + Double.random(in: 0..<(deadline - nowSec)))
-                                } else {
-                                    payloads[i].submitAt = 0
-                                }
-                            }
+                            try await Self.applyShareSubmissionPolicy(
+                                to: &payloads,
+                                serverURLs: shareServerURLs,
+                                nowSeconds: UInt64(Date().timeIntervalSince1970),
+                                voteEndTimeSeconds: voteEndTimeSeconds,
+                                lastMomentBufferSeconds: lastMomentBufferSeconds,
+                                singleShare: singleShare,
+                                votingCrypto: votingCrypto
+                            )
                             try await votingCrypto.storeVoteCommitmentBundle(roundId, bundleIndex, proposalId, builtBundle, vcIdx)
                             let batchDelegationResult = try await Self.delegateSharesWithFallback(
                                 payloads,
@@ -497,5 +502,34 @@ extension Voting {
         }
         let synthesizedAbstainIndex = (proposal.options.map(\.index).max() ?? 0) + 1
         return choice.index == synthesizedAbstainIndex
+    }
+
+    static func applyShareSubmissionPolicy(
+        to payloads: inout [SharePayload],
+        serverURLs: [String],
+        nowSeconds: UInt64,
+        voteEndTimeSeconds: UInt64,
+        lastMomentBufferSeconds: UInt64?,
+        singleShare: Bool,
+        votingCrypto: VotingCryptoClient
+    ) async throws {
+        guard !payloads.isEmpty else { return }
+
+        let plans = try await votingCrypto.planShareSubmissions(
+            payloads.count,
+            serverURLs,
+            nowSeconds,
+            voteEndTimeSeconds,
+            lastMomentBufferSeconds,
+            singleShare
+        )
+        guard plans.count == payloads.count else {
+            throw ShareSubmissionPlanCountMismatch(expected: payloads.count, actual: plans.count)
+        }
+
+        for index in payloads.indices {
+            payloads[index].submitAt = plans[index].submitAt
+            payloads[index].targetServers = plans[index].targetServers
+        }
     }
 }

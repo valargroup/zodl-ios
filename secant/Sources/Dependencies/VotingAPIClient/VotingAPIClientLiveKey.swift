@@ -1,6 +1,7 @@
 import ComposableArchitecture
 import Foundation
 import os
+@preconcurrency import ZcashLightClientKit
 
 private let logger = Logger(subsystem: "co.zodl.voting", category: "VotingAPIClient")
 
@@ -315,7 +316,8 @@ private func postServerJSON(_ serverURL: String, _ path: String, body: [String: 
 }
 
 typealias SharePost = @Sendable (_ serverURL: String, _ body: [String: Any]) async throws -> Void
-typealias ShareTargetSelector = @Sendable (_ serverURLs: [String], _ targetCount: Int) -> [String]
+typealias ShareTargetSelector = @Sendable (_ serverURLs: [String], _ targetCount: Int) throws -> [String]
+typealias ShareResubmissionOrder = @Sendable (_ configuredServerURLs: [String], _ sentToURLs: [String]) throws -> [String]
 
 func sharePostBody(
     for payload: SharePayload,
@@ -352,7 +354,12 @@ func delegateSharePayloads(
     roundIdHex: String,
     initialServerURLs: [String],
     postShare: @escaping SharePost,
-    selectTargets: @escaping ShareTargetSelector = { Array($0.shuffled().prefix($1)) }
+    selectTargets: @escaping ShareTargetSelector = {
+        try Array(VotingRustBackend.resubmissionServerOrder(
+            configuredServerURLs: $0,
+            sentToURLs: []
+        ).prefix($1))
+    }
 ) async throws -> ShareDelegationResult {
     var availableServers = initialServerURLs
     var lastError: Error?
@@ -360,8 +367,9 @@ func delegateSharePayloads(
 
     for (shareOffset, payload) in payloads.enumerated() {
         let body = sharePostBody(for: payload, roundIdHex: roundIdHex)
+        let plannedTargets = payload.targetServers.filter { availableServers.contains($0) }
 
-        let targetCount = max(1, (availableServers.count + 1) / 2)
+        let targetCount = max(1, plannedTargets.isEmpty ? (availableServers.count + 1) / 2 : plannedTargets.count)
         var acceptedServers: [String] = []
         var triedServers = Set<String>()
 
@@ -370,7 +378,10 @@ func delegateSharePayloads(
             guard !candidates.isEmpty else { break }
 
             let needed = max(1, targetCount - acceptedServers.count)
-            let targets = selectTargets(candidates, needed).filter { candidates.contains($0) }
+            let plannedCandidates = plannedTargets.filter { candidates.contains($0) }
+            let targets = plannedCandidates.isEmpty
+                ? try selectTargets(candidates, needed).filter { candidates.contains($0) }
+                : Array(plannedCandidates.prefix(needed))
             guard !targets.isEmpty else { break }
 
             triedServers.formUnion(targets)
@@ -432,14 +443,21 @@ func resubmitSharePayload(
     configuredServerURLs: [String],
     sentToURLs: [String],
     postShare: @escaping SharePost,
-    orderServers: @escaping @Sendable ([String]) -> [String] = { $0.shuffled() }
-) async -> [String] {
-    let sentSet = Set(sentToURLs)
-    let untried = orderServers(configuredServerURLs.filter { !sentSet.contains($0) })
-    let alreadySent = orderServers(configuredServerURLs.filter { sentSet.contains($0) })
+    orderServers: @escaping ShareResubmissionOrder = { configuredServerURLs, sentToURLs in
+        try VotingRustBackend.resubmissionServerOrder(
+            configuredServerURLs: configuredServerURLs,
+            sentToURLs: sentToURLs
+        )
+    }
+) async throws -> [String] {
     let body = sharePostBody(for: payload, roundIdHex: roundIdHex, submitAt: 0)
+    let configuredSet = Set(configuredServerURLs)
+    var seen = Set<String>()
+    let serverOrder = try orderServers(configuredServerURLs, sentToURLs).filter { server in
+        configuredSet.contains(server) && seen.insert(server).inserted
+    }
 
-    for server in untried + alreadySent {
+    for server in serverOrder {
         do {
             try await postShare(server, body)
             return [server]
@@ -927,7 +945,7 @@ extension VotingAPIClient: DependencyKey {
             resubmitShare: { payload, roundIdHex, excludeURLs in
                 let configuredServerURLs = try await SvAPIConfigStore.shared.configuredVoteServerURLs()
                 let tracker = ServerHealthTracker.shared
-                return await resubmitSharePayload(
+                return try await resubmitSharePayload(
                     payload,
                     roundIdHex: roundIdHex,
                     configuredServerURLs: configuredServerURLs,

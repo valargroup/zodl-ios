@@ -148,6 +148,15 @@ struct VotingCryptoClient {
         _ vcTreePosition: UInt64,
         _ singleShare: Bool
     ) async throws -> [SharePayload]
+    /// Plan share `submit_at` times and initial helper targets with the shared SDK policy.
+    var planShareSubmissions: @Sendable (
+        _ shareCount: Int,
+        _ serverURLs: [String],
+        _ nowSeconds: UInt64,
+        _ voteEndTimeSeconds: UInt64,
+        _ lastMomentBufferSeconds: UInt64?,
+        _ singleShare: Bool
+    ) async throws -> [VotingShareSubmissionPlan]
     /// Reconstruct the full chain-ready delegation TX payload from DB + seed.
     /// Call after `buildAndProveDelegation` completes.
     var getDelegationSubmission: @Sendable (

@@ -18,29 +18,27 @@ struct ShareRecoveryPollResult: Equatable, Sendable {
     let queriedCount: Int
 }
 
-func shareRecoveryBaseTime(_ share: VotingShareDelegation) -> UInt64 {
-    share.submitAt > 0 ? share.submitAt : share.createdAt
-}
-
 func isShareReadyForStatusCheck(
     _ share: VotingShareDelegation,
-    now: UInt64,
-    checkGrace: UInt64 = 10
+    now: UInt64
 ) -> Bool {
-    now >= shareRecoveryBaseTime(share) + checkGrace
+    ((try? VotingRustBackend.summarizeShareTracking(
+        shares: [share],
+        nowSeconds: now,
+        voteEndTimeSeconds: nil
+    ).ready) ?? 0) > 0
 }
 
 func shouldResubmitShare(
     _ share: VotingShareDelegation,
     now: UInt64,
-    voteEndTime: UInt64,
-    resubmitCutoff: UInt64 = 10
+    voteEndTime: UInt64
 ) -> Bool {
-    let baseTime = shareRecoveryBaseTime(share)
-    let remainingWindow = voteEndTime > baseTime ? voteEndTime - baseTime : 0
-    let overdueThreshold: UInt64 = max(30, min(3600, remainingWindow / 4))
-
-    return now >= baseTime + overdueThreshold && voteEndTime > now + resubmitCutoff
+    ((try? VotingRustBackend.summarizeShareTracking(
+        shares: [share],
+        nowSeconds: now,
+        voteEndTimeSeconds: voteEndTime
+    ).overdue) ?? 0) > 0
 }
 
 func pollShareStatusesForRecovery(
@@ -303,11 +301,8 @@ extension Voting {
                 }
                 var resubmitQueue: [ResubmitCandidate] = []
 
-                // Check confirmation after the helper had time to process the share.
-                // Delayed shares use submitAt; immediate shares use createdAt.
-                let checkGrace: UInt64 = 10
                 let readyShares = unconfirmed.filter { share in
-                    isShareReadyForStatusCheck(share, now: now, checkGrace: checkGrace)
+                    isShareReadyForStatusCheck(share, now: now)
                 }
                 let futureCount = unconfirmed.count - readyShares.count
 
@@ -408,26 +403,25 @@ extension Voting {
                 let refreshedNow = UInt64(Date().timeIntervalSince1970)
                 let stillUnconfirmed = updatedDelegations.filter { !$0.confirmed }
 
-                // Find the soonest unconfirmed share's check time.
-                let futureCheckTimes = stillUnconfirmed.compactMap { share -> UInt64? in
-                    let readyAt = shareRecoveryBaseTime(share) + checkGrace
-                    return readyAt > refreshedNow ? readyAt : nil
-                }
-
-                let sleepSeconds: UInt64
                 if stillUnconfirmed.isEmpty {
                     votingLogger.debug("[SharePoll] all confirmed, stopping poll")
                     return
-                } else if let soonest = futureCheckTimes.min() {
-                    sleepSeconds = min(soonest - refreshedNow, 30)
-                } else {
-                    sleepSeconds = 15
                 }
 
-                let actualSleep = max(sleepSeconds, 3)
-                votingLogger.debug("[SharePoll] sleeping \(actualSleep)s (stillUnconfirmed=\(stillUnconfirmed.count) futureShares=\(futureCheckTimes.count))")
-                try await Task.sleep(for: .seconds(actualSleep))
-                await send(.pollShareStatus)
+                do {
+                    guard let actualSleep = try VotingRustBackend.nextShareTrackingDelaySeconds(
+                        shares: updatedDelegations,
+                        nowSeconds: refreshedNow
+                    ) else {
+                        votingLogger.debug("[SharePoll] all confirmed, stopping poll")
+                        return
+                    }
+                    votingLogger.debug("[SharePoll] sleeping \(actualSleep)s (stillUnconfirmed=\(stillUnconfirmed.count))")
+                    try await Task.sleep(for: .seconds(actualSleep))
+                    await send(.pollShareStatus)
+                } catch {
+                    votingLogger.warning("Failed to calculate share polling delay: \(error.localizedDescription)")
+                }
             } catch: { _, _ in }
             .cancellable(id: cancelShareTrackingId, cancelInFlight: true)
 

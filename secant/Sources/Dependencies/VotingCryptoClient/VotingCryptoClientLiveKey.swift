@@ -478,6 +478,17 @@ extension VotingCryptoClient: DependencyKey {
                     )
                 }
             },
+            // swiftlint:disable:next line_length
+            planShareSubmissions: { shareCount, serverURLs, nowSeconds, voteEndTimeSeconds, lastMomentBufferSeconds, singleShare in
+                try VotingRustBackend.planShareSubmissions(
+                    shareCount: shareCount,
+                    serverURLs: serverURLs,
+                    nowSeconds: nowSeconds,
+                    voteEndTimeSeconds: voteEndTimeSeconds,
+                    lastMomentBufferSeconds: lastMomentBufferSeconds,
+                    singleShare: singleShare
+                )
+            },
             getDelegationSubmission: { roundId, bundleIndex, senderSeed, networkId, accountIndex in
                 let backend = try await dbActor.backend()
                 let sub = try backend.getDelegationSubmission(
