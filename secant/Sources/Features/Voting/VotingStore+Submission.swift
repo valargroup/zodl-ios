@@ -529,6 +529,7 @@ extension Voting {
 
         for index in payloads.indices {
             payloads[index].submitAt = plans[index].submitAt
+            payloads[index].targetCount = plans[index].targetCount
             payloads[index].targetServers = plans[index].targetServers
         }
     }

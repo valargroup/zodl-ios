@@ -620,9 +620,8 @@ final class ShareRecoveryPollingTests: XCTestCase {
 
         let result = await pollShareStatusesForRecovery(
             readyShares: [share],
+            overdueShares: [],
             roundId: "aabb",
-            now: 200,
-            voteEndTime: 1_000,
             fetchShareStatus: { helperURL, _, _ in
                 await recorder.record(helperURL)
                 return helperURL == "https://helper-3.example.com" ? .confirmed : .pending
@@ -650,9 +649,8 @@ final class ShareRecoveryPollingTests: XCTestCase {
 
         let result = await pollShareStatusesForRecovery(
             readyShares: [share],
+            overdueShares: [],
             roundId: "aabb",
-            now: 200,
-            voteEndTime: 1_000,
             fetchShareStatus: { helperURL, _, _ in
                 await recorder.record(helperURL)
                 if helperURL == "https://helper-3.example.com" {
@@ -679,11 +677,37 @@ final class ShareRecoveryPollingTests: XCTestCase {
             submitAt: 0,
             createdAt: 100
         )
+        let key = VotingShareDelegationKey(
+            roundId: "aabb",
+            bundleIndex: 0,
+            proposalId: 1,
+            shareIndex: 0
+        )
 
-        XCTAssertFalse(isShareReadyForStatusCheck(share, now: 109))
-        XCTAssertTrue(isShareReadyForStatusCheck(share, now: 110))
-        XCTAssertFalse(shouldResubmitShare(share, now: 129, voteEndTime: 200))
-        XCTAssertTrue(shouldResubmitShare(share, now: 130, voteEndTime: 200))
+        let waiting = try VotingRustBackend.planShareRecoveryActions(
+            shares: [share],
+            nowSeconds: 109,
+            voteEndTimeSeconds: 200
+        )
+        XCTAssertTrue(waiting.readyForStatusCheck.isEmpty)
+        let ready = try VotingRustBackend.planShareRecoveryActions(
+            shares: [share],
+            nowSeconds: 110,
+            voteEndTimeSeconds: 200
+        )
+        XCTAssertEqual(ready.readyForStatusCheck, [key])
+        let notOverdue = try VotingRustBackend.planShareRecoveryActions(
+            shares: [share],
+            nowSeconds: 129,
+            voteEndTimeSeconds: 200
+        )
+        XCTAssertTrue(notOverdue.overdueForResubmission.isEmpty)
+        let overdue = try VotingRustBackend.planShareRecoveryActions(
+            shares: [share],
+            nowSeconds: 130,
+            voteEndTimeSeconds: 200
+        )
+        XCTAssertEqual(overdue.overdueForResubmission, [key])
     }
 
     func testDelayedSharesUseSubmitAtForReadinessAndResubmission() throws {
@@ -692,11 +716,37 @@ final class ShareRecoveryPollingTests: XCTestCase {
             submitAt: 200,
             createdAt: 100
         )
+        let key = VotingShareDelegationKey(
+            roundId: "aabb",
+            bundleIndex: 0,
+            proposalId: 1,
+            shareIndex: 0
+        )
 
-        XCTAssertFalse(isShareReadyForStatusCheck(share, now: 209))
-        XCTAssertTrue(isShareReadyForStatusCheck(share, now: 210))
-        XCTAssertFalse(shouldResubmitShare(share, now: 229, voteEndTime: 320))
-        XCTAssertTrue(shouldResubmitShare(share, now: 230, voteEndTime: 320))
+        let waiting = try VotingRustBackend.planShareRecoveryActions(
+            shares: [share],
+            nowSeconds: 209,
+            voteEndTimeSeconds: 320
+        )
+        XCTAssertTrue(waiting.readyForStatusCheck.isEmpty)
+        let ready = try VotingRustBackend.planShareRecoveryActions(
+            shares: [share],
+            nowSeconds: 210,
+            voteEndTimeSeconds: 320
+        )
+        XCTAssertEqual(ready.readyForStatusCheck, [key])
+        let notOverdue = try VotingRustBackend.planShareRecoveryActions(
+            shares: [share],
+            nowSeconds: 229,
+            voteEndTimeSeconds: 320
+        )
+        XCTAssertTrue(notOverdue.overdueForResubmission.isEmpty)
+        let overdue = try VotingRustBackend.planShareRecoveryActions(
+            shares: [share],
+            nowSeconds: 230,
+            voteEndTimeSeconds: 320
+        )
+        XCTAssertEqual(overdue.overdueForResubmission, [key])
     }
 }
 
@@ -785,9 +835,50 @@ final class ShareResubmissionFallbackTests: XCTestCase {
 }
 
 final class ShareDelegationPostFallbackTests: XCTestCase {
+    private static let firstAvailableTargets: ShareTargetSelector = { plan, available, accepted, tried in
+        let availableSet = Set(available)
+        let acceptedSet = Set(accepted)
+        let triedSet = Set(tried)
+        let remaining = max(0, Int(plan.targetCount) - acceptedSet.intersection(availableSet).count)
+        return Array(available.filter {
+            !acceptedSet.contains($0) && !triedSet.contains($0)
+        }.prefix(remaining))
+    }
+
+    private static let plannedThenAvailableTargets: ShareTargetSelector = { plan, available, accepted, tried in
+        let availableSet = Set(available)
+        let acceptedSet = Set(accepted)
+        let triedSet = Set(tried)
+        let remaining = max(0, Int(plan.targetCount) - acceptedSet.intersection(availableSet).count)
+        guard remaining > 0 else { return [] }
+
+        var selected: [String] = []
+        for server in plan.targetServers {
+            guard availableSet.contains(server),
+                  !acceptedSet.contains(server),
+                  !triedSet.contains(server)
+            else { continue }
+            selected.append(server)
+            if selected.count == remaining { return selected }
+        }
+        for server in available {
+            guard !plan.targetServers.contains(server),
+                  !acceptedSet.contains(server),
+                  !triedSet.contains(server)
+            else { continue }
+            selected.append(server)
+            if selected.count == remaining { return selected }
+        }
+        return selected
+    }
+
     func testPlannedHelperTargetsAreUsedForInitialDelivery() async throws {
         let recorder = SharePostRecorder()
-        let payload = Self.makePayload(index: 0, targetServers: ["https://planned.example.com"])
+        let payload = Self.makePayload(
+            index: 0,
+            targetCount: 1,
+            targetServers: ["https://planned.example.com"]
+        )
 
         let result = try await delegateSharePayloads(
             [payload],
@@ -799,7 +890,11 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
             postShare: { server, _ in
                 await recorder.record(server)
             },
-            selectTargets: { servers, _ in [servers[0]] }
+            selectTargets: { plan, available, accepted, tried in
+                plan.targetServers.filter {
+                    available.contains($0) && !accepted.contains($0) && !tried.contains($0)
+                }
+            }
         )
 
         let postedServers = await recorder.servers()
@@ -809,7 +904,7 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
 
     func testSelectedHelperFailureBackfillsSameShareAndPrunesFailedHelper() async throws {
         let recorder = SharePostRecorder()
-        let payload = Self.makePayload(index: 0)
+        let payload = Self.makePayload(index: 0, targetCount: 2)
 
         let result = try await delegateSharePayloads(
             [payload],
@@ -825,7 +920,7 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
                     throw SharePostFailure()
                 }
             },
-            selectTargets: { servers, targetCount in Array(servers.prefix(targetCount)) }
+            selectTargets: Self.firstAvailableTargets
         )
 
         let postedServers = await recorder.servers()
@@ -847,7 +942,7 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
 
     func testOfflineHelperIsAttemptedAtMostOnceThenLaterSharesUseOnlineHelper() async throws {
         let recorder = SharePostRecorder()
-        let payloads = (0..<2).map { Self.makePayload(index: UInt32($0)) }
+        let payloads = (0..<2).map { Self.makePayload(index: UInt32($0), targetCount: 1) }
 
         let result = try await delegateSharePayloads(
             payloads,
@@ -862,7 +957,7 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
                     throw SharePostFailure()
                 }
             },
-            selectTargets: { servers, targetCount in Array(servers.prefix(targetCount)) }
+            selectTargets: Self.firstAvailableTargets
         )
 
         let postedServers = await recorder.servers()
@@ -880,7 +975,7 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
 
     func testAllSelectedHelpersFailButBackfillHelperSucceeds() async throws {
         let recorder = SharePostRecorder()
-        let payload = Self.makePayload(index: 0)
+        let payload = Self.makePayload(index: 0, targetCount: 2)
 
         let result = try await delegateSharePayloads(
             [payload],
@@ -896,7 +991,7 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
                     throw SharePostFailure()
                 }
             },
-            selectTargets: { servers, targetCount in Array(servers.prefix(targetCount)) }
+            selectTargets: Self.firstAvailableTargets
         )
 
         let postedServers = await recorder.servers()
@@ -911,7 +1006,7 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
     }
 
     func testAllConfiguredHelpersFailThrowsNoReachableVoteServers() async throws {
-        let payload = Self.makePayload(index: 0)
+        let payload = Self.makePayload(index: 0, targetCount: 1)
 
         do {
             _ = try await delegateSharePayloads(
@@ -922,7 +1017,7 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
                     "https://offline-two.example.com"
                 ],
                 postShare: { _, _ in throw SharePostFailure() },
-                selectTargets: { servers, targetCount in Array(servers.prefix(targetCount)) }
+                selectTargets: Self.firstAvailableTargets
             )
             XCTFail("Expected share delegation to fail")
         } catch {
@@ -930,7 +1025,54 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
         }
     }
 
-    private static func makePayload(index: UInt32, targetServers: [String] = []) -> SharePayload {
+    func testPrunedPlannedTargetBackfillsToPlannedTargetCountForLaterShare() async throws {
+        let recorder = SharePostRecorder()
+        let payloads = [
+            Self.makePayload(
+                index: 0,
+                targetCount: 1,
+                targetServers: ["https://offline.example.com"]
+            ),
+            Self.makePayload(
+                index: 1,
+                targetCount: 2,
+                targetServers: [
+                    "https://offline.example.com",
+                    "https://online-one.example.com"
+                ]
+            )
+        ]
+
+        let result = try await delegateSharePayloads(
+            payloads,
+            roundIdHex: "aabb",
+            initialServerURLs: [
+                "https://offline.example.com",
+                "https://online-one.example.com",
+                "https://online-two.example.com"
+            ],
+            postShare: { server, _ in
+                await recorder.record(server)
+                if server == "https://offline.example.com" {
+                    throw SharePostFailure()
+                }
+            },
+            selectTargets: Self.plannedThenAvailableTargets
+        )
+
+        XCTAssertEqual(result.delegatedShares.first?.acceptedByServers, ["https://online-one.example.com"])
+        XCTAssertEqual(result.delegatedShares.last?.acceptedByServers.count, 2)
+        XCTAssertEqual(Set(result.delegatedShares.last?.acceptedByServers ?? []), Set([
+            "https://online-one.example.com",
+            "https://online-two.example.com"
+        ]))
+    }
+
+    private static func makePayload(
+        index: UInt32,
+        targetCount: UInt64,
+        targetServers: [String] = []
+    ) -> SharePayload {
         let share = EncryptedShare(
             c1: Data(repeating: UInt8(index + 1), count: 32),
             c2: Data(repeating: UInt8(index + 2), count: 32),
@@ -946,6 +1088,7 @@ final class ShareDelegationPostFallbackTests: XCTestCase {
             shareComms: [Data(repeating: 0x03, count: 32)],
             primaryBlind: Data(repeating: 0x04, count: 32),
             submitAt: 0,
+            targetCount: targetCount,
             targetServers: targetServers
         )
     }

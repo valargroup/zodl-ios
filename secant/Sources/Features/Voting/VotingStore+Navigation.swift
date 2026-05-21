@@ -6,7 +6,9 @@ import os
 
 // MARK: - Navigation, VotingProposal List/Detail, Share Info, Share Delegation Tracking
 
-struct ShareDelegationKey: Equatable, Sendable {
+private let shareTrackingPolicyErrorRetrySeconds: UInt64 = 15
+
+struct ShareDelegationKey: Hashable, Sendable {
     let bundleIndex: UInt32
     let proposalId: UInt32
     let shareIndex: UInt32
@@ -18,34 +20,32 @@ struct ShareRecoveryPollResult: Equatable, Sendable {
     let queriedCount: Int
 }
 
-func isShareReadyForStatusCheck(
-    _ share: VotingShareDelegation,
-    now: UInt64
-) -> Bool {
-    ((try? VotingRustBackend.summarizeShareTracking(
-        shares: [share],
-        nowSeconds: now,
-        voteEndTimeSeconds: nil
-    ).ready) ?? 0) > 0
+private func shareDelegationKey(for share: VotingShareDelegation) -> ShareDelegationKey {
+    ShareDelegationKey(
+        bundleIndex: share.bundleIndex,
+        proposalId: share.proposalId,
+        shareIndex: share.shareIndex
+    )
 }
 
-func shouldResubmitShare(
-    _ share: VotingShareDelegation,
-    now: UInt64,
-    voteEndTime: UInt64
-) -> Bool {
-    ((try? VotingRustBackend.summarizeShareTracking(
-        shares: [share],
-        nowSeconds: now,
-        voteEndTimeSeconds: voteEndTime
-    ).overdue) ?? 0) > 0
+private func localShareDelegationKeys(
+    from keys: [VotingShareDelegationKey],
+    roundId: String
+) -> Set<ShareDelegationKey> {
+    Set(keys.compactMap { key in
+        guard key.roundId == roundId else { return nil }
+        return ShareDelegationKey(
+            bundleIndex: key.bundleIndex,
+            proposalId: key.proposalId,
+            shareIndex: key.shareIndex
+        )
+    })
 }
 
 func pollShareStatusesForRecovery(
     readyShares: [VotingShareDelegation],
+    overdueShares: Set<ShareDelegationKey>,
     roundId: String,
-    now: UInt64,
-    voteEndTime: UInt64,
     fetchShareStatus: @escaping @Sendable (
         _ helperBaseURL: String,
         _ roundIdHex: String,
@@ -78,7 +78,7 @@ func pollShareStatusesForRecovery(
             }
         }
 
-        if !confirmed && shouldResubmitShare(share, now: now, voteEndTime: voteEndTime) {
+        if !confirmed && overdueShares.contains(shareDelegationKey(for: share)) {
             resubmissionShares.append(share)
         }
     }
@@ -301,18 +301,36 @@ extension Voting {
                 }
                 var resubmitQueue: [ResubmitCandidate] = []
 
-                let readyShares = unconfirmed.filter { share in
-                    isShareReadyForStatusCheck(share, now: now)
+                let recoveryPlan: VotingShareRecoveryActionPlan
+                do {
+                    recoveryPlan = try VotingRustBackend.planShareRecoveryActions(
+                        shares: freshDelegations,
+                        nowSeconds: now,
+                        voteEndTimeSeconds: voteEndTime
+                    )
+                } catch {
+                    votingLogger.warning("Failed to plan share recovery actions: \(error.localizedDescription)")
+                    try await Task.sleep(for: .seconds(shareTrackingPolicyErrorRetrySeconds))
+                    await send(.pollShareStatus)
+                    return
                 }
+                let readyKeys = localShareDelegationKeys(
+                    from: recoveryPlan.readyForStatusCheck,
+                    roundId: roundId
+                )
+                let overdueKeys = localShareDelegationKeys(
+                    from: recoveryPlan.overdueForResubmission,
+                    roundId: roundId
+                )
+                let readyShares = unconfirmed.filter { readyKeys.contains(shareDelegationKey(for: $0)) }
                 let futureCount = unconfirmed.count - readyShares.count
 
                 votingLogger.debug("[SharePoll] ready=\(readyShares.count) future=\(futureCount)")
 
                 let pollResult = await pollShareStatusesForRecovery(
                     readyShares: readyShares,
+                    overdueShares: overdueKeys,
                     roundId: roundId,
-                    now: now,
-                    voteEndTime: voteEndTime,
                     fetchShareStatus: votingAPI.fetchShareStatus
                 )
 
@@ -408,20 +426,26 @@ extension Voting {
                     return
                 }
 
+                let refreshedRecoveryPlan: VotingShareRecoveryActionPlan
                 do {
-                    guard let actualSleep = try VotingRustBackend.nextShareTrackingDelaySeconds(
+                    refreshedRecoveryPlan = try VotingRustBackend.planShareRecoveryActions(
                         shares: updatedDelegations,
-                        nowSeconds: refreshedNow
-                    ) else {
-                        votingLogger.debug("[SharePoll] all confirmed, stopping poll")
-                        return
-                    }
-                    votingLogger.debug("[SharePoll] sleeping \(actualSleep)s (stillUnconfirmed=\(stillUnconfirmed.count))")
-                    try await Task.sleep(for: .seconds(actualSleep))
-                    await send(.pollShareStatus)
+                        nowSeconds: refreshedNow,
+                        voteEndTimeSeconds: voteEndTime
+                    )
                 } catch {
                     votingLogger.warning("Failed to calculate share polling delay: \(error.localizedDescription)")
+                    try await Task.sleep(for: .seconds(shareTrackingPolicyErrorRetrySeconds))
+                    await send(.pollShareStatus)
+                    return
                 }
+                guard let actualSleep = refreshedRecoveryPlan.nextDelaySeconds else {
+                    votingLogger.debug("[SharePoll] all confirmed, stopping poll")
+                    return
+                }
+                votingLogger.debug("[SharePoll] sleeping \(actualSleep)s (stillUnconfirmed=\(stillUnconfirmed.count))")
+                try await Task.sleep(for: .seconds(actualSleep))
+                await send(.pollShareStatus)
             } catch: { _, _ in }
             .cancellable(id: cancelShareTrackingId, cancelInFlight: true)
 

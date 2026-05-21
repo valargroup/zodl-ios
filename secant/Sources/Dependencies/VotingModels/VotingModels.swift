@@ -526,13 +526,16 @@ struct SharePayload: Equatable, Sendable {
     let primaryBlind: Data
     /// Unix seconds at which the helper should submit the share; 0 = immediate (last-moment).
     var submitAt: UInt64
+    /// Number of helper acceptances required by the shared voting share policy.
+    var targetCount: UInt64
     /// Helper targets selected by the shared voting share policy for initial delivery.
     var targetServers: [String]
 
     init(
         sharesHash: Data, proposalId: UInt32, voteDecision: UInt32, encShare: EncryptedShare,
         treePosition: UInt64, allEncShares: [EncryptedShare] = [], shareComms: [Data] = [],
-        primaryBlind: Data = Data(), submitAt: UInt64 = 0, targetServers: [String] = []
+        primaryBlind: Data = Data(), submitAt: UInt64 = 0, targetCount: UInt64 = 0,
+        targetServers: [String] = []
     ) {
         self.sharesHash = sharesHash
         self.proposalId = proposalId
@@ -543,6 +546,7 @@ struct SharePayload: Equatable, Sendable {
         self.shareComms = shareComms
         self.primaryBlind = primaryBlind
         self.submitAt = submitAt
+        self.targetCount = targetCount
         self.targetServers = targetServers
     }
 }

@@ -316,7 +316,12 @@ private func postServerJSON(_ serverURL: String, _ path: String, body: [String: 
 }
 
 typealias SharePost = @Sendable (_ serverURL: String, _ body: [String: Any]) async throws -> Void
-typealias ShareTargetSelector = @Sendable (_ serverURLs: [String], _ targetCount: Int) throws -> [String]
+typealias ShareTargetSelector = @Sendable (
+    _ plan: VotingShareSubmissionPlan,
+    _ availableServerURLs: [String],
+    _ acceptedServerURLs: [String],
+    _ triedServerURLs: [String]
+) throws -> [String]
 typealias ShareResubmissionOrder = @Sendable (_ configuredServerURLs: [String], _ sentToURLs: [String]) throws -> [String]
 
 func sharePostBody(
@@ -355,10 +360,12 @@ func delegateSharePayloads(
     initialServerURLs: [String],
     postShare: @escaping SharePost,
     selectTargets: @escaping ShareTargetSelector = {
-        try Array(VotingRustBackend.resubmissionServerOrder(
-            configuredServerURLs: $0,
-            sentToURLs: []
-        ).prefix($1))
+        try VotingRustBackend.nextInitialShareTargets(
+            plan: $0,
+            availableServerURLs: $1,
+            acceptedServerURLs: $2,
+            triedServerURLs: $3
+        )
     }
 ) async throws -> ShareDelegationResult {
     var availableServers = initialServerURLs
@@ -367,21 +374,33 @@ func delegateSharePayloads(
 
     for (shareOffset, payload) in payloads.enumerated() {
         let body = sharePostBody(for: payload, roundIdHex: roundIdHex)
-        let plannedTargets = payload.targetServers.filter { availableServers.contains($0) }
-
-        let targetCount = max(1, plannedTargets.isEmpty ? (availableServers.count + 1) / 2 : plannedTargets.count)
+        guard payload.targetCount > 0, payload.targetCount <= UInt64(Int.max) else {
+            lastError = ShareDelegationError.noReachableVoteServers
+            break
+        }
+        let targetCount = Int(payload.targetCount)
+        let plan = VotingShareSubmissionPlan(
+            submitAt: payload.submitAt,
+            targetCount: payload.targetCount,
+            targetServers: payload.targetServers
+        )
         var acceptedServers: [String] = []
         var triedServers = Set<String>()
 
         while acceptedServers.count < targetCount {
-            let candidates = availableServers.filter { !triedServers.contains($0) }
-            guard !candidates.isEmpty else { break }
-
-            let needed = max(1, targetCount - acceptedServers.count)
-            let plannedCandidates = plannedTargets.filter { candidates.contains($0) }
-            let targets = plannedCandidates.isEmpty
-                ? try selectTargets(candidates, needed).filter { candidates.contains($0) }
-                : Array(plannedCandidates.prefix(needed))
+            let acceptedSnapshot = acceptedServers
+            let triedSnapshot = Array(triedServers)
+            let targets = try selectTargets(
+                plan,
+                availableServers,
+                acceptedSnapshot,
+                triedSnapshot
+            )
+            .filter {
+                availableServers.contains($0)
+                    && !acceptedSnapshot.contains($0)
+                    && !triedServers.contains($0)
+            }
             guard !targets.isEmpty else { break }
 
             triedServers.formUnion(targets)
