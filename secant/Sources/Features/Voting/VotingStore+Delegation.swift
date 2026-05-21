@@ -199,7 +199,19 @@ extension Voting {
             // If bundles were previously skipped, the DB count is less than the
             // total from planned bundles. Recalculate votingWeight to reflect only
             // the kept bundles (quantized per bundle).
-            let allBundles = state.walletNotes.plannedVotingBundlesOrEmpty().bundles
+            let allBundles: [[NoteInfo]]
+            do {
+                allBundles = try state.walletNotes.plannedVotingBundles().bundles
+            } catch {
+                let message = VotingErrorMapper.userFriendlyMessage(from: error)
+                votingLogger.error("Failed to plan voting bundles: \(error)")
+                state.witnessStatus = .failed(message)
+                state.delegationProofStatus = .failed(message)
+                state.isDelegationProofInFlight = false
+                state.delegationPrecomputeStatus = .failed(message)
+                state.isDelegationPrecomputeInFlight = false
+                return .none
+            }
             if bundleCount > 0, Int(bundleCount) < allBundles.count {
                 state.votingWeight = (0..<Int(bundleCount)).reduce(UInt64(0)) { total, i in
                     let raw = allBundles[i].reduce(UInt64(0)) { $0 + $1.value }
@@ -259,7 +271,19 @@ extension Voting {
             // If bundles were previously skipped, the DB count is less than the
             // total from planned bundles. Recalculate votingWeight to reflect only
             // the kept bundles (quantized per bundle).
-            let allBundles = state.walletNotes.plannedVotingBundlesOrEmpty().bundles
+            let allBundles: [[NoteInfo]]
+            do {
+                allBundles = try state.walletNotes.plannedVotingBundles().bundles
+            } catch {
+                let message = VotingErrorMapper.userFriendlyMessage(from: error)
+                votingLogger.error("Failed to plan voting bundles: \(error)")
+                state.witnessStatus = .failed(message)
+                state.delegationProofStatus = .failed(message)
+                state.isDelegationProofInFlight = false
+                state.delegationPrecomputeStatus = .failed(message)
+                state.isDelegationPrecomputeInFlight = false
+                return .none
+            }
             if count > 0, Int(count) < allBundles.count {
                 state.votingWeight = (0..<Int(count)).reduce(UInt64(0)) { total, i in
                     let raw = allBundles[i].reduce(UInt64(0)) { $0 + $1.value }
@@ -894,7 +918,14 @@ extension Voting {
             state.bundleCount = signedCount
 
             // Recalculate votingWeight to reflect only signed bundles' quantized weight
-            let bundles = state.walletNotes.plannedVotingBundlesOrEmpty().bundles
+            let bundles: [[NoteInfo]]
+            do {
+                bundles = try state.walletNotes.plannedVotingBundles().bundles
+            } catch {
+                votingLogger.error("Failed to plan voting bundles: \(error)")
+                state.keystoneSigningStatus = .failed(VotingErrorMapper.userFriendlyMessage(from: error))
+                return .none
+            }
             let signedWeight = state.keystoneBundleSignatures.indices.reduce(UInt64(0)) { total, i in
                 guard i < bundles.count else { return total }
                 let raw = bundles[i].reduce(UInt64(0)) { $0 + $1.value }

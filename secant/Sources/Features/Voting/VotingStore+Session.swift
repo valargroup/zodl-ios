@@ -272,7 +272,14 @@ extension Voting {
                 return .none
             }
             // Use shared bundle planning to determine eligible weight (excluding dust bundles)
-            let bundleResult = notes.plannedVotingBundlesOrEmpty()
+            let bundleResult: BundleResult
+            do {
+                bundleResult = try notes.plannedVotingBundles()
+            } catch {
+                votingLogger.error("Failed to plan voting bundles: \(error)")
+                state.screenStack = [.error(VotingErrorMapper.userFriendlyMessage(from: error))]
+                return .none
+            }
             let eligibleWeight = bundleResult.eligibleWeight
             state.votingWeight = eligibleWeight
             if bundleResult.droppedCount > 0 {
