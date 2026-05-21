@@ -316,13 +316,38 @@ private func postServerJSON(_ serverURL: String, _ path: String, body: [String: 
 }
 
 typealias SharePost = @Sendable (_ serverURL: String, _ body: [String: Any]) async throws -> Void
-typealias ShareTargetSelector = @Sendable (
-    _ plan: VotingShareSubmissionPlan,
-    _ availableServerURLs: [String],
-    _ acceptedServerURLs: [String],
-    _ triedServerURLs: [String]
-) throws -> [String]
-typealias ShareResubmissionOrder = @Sendable (_ configuredServerURLs: [String], _ sentToURLs: [String]) throws -> [String]
+
+private enum ShareWorkflowApplicationError: Error {
+    case missingDeliveryState
+    case missingResubmissionState
+    case missingPayload
+    case unexpectedAction(VotingShareWorkflowAction.Kind)
+}
+
+private struct SharePayloadWorkflowKey: Hashable {
+    let roundId: String
+    let bundleIndex: UInt32
+    let proposalId: UInt32
+    let shareIndex: UInt32
+}
+
+private func workflowKey(for payload: SharePayload, roundIdHex: String) -> VotingShareDelegationKey {
+    VotingShareDelegationKey(
+        roundId: roundIdHex,
+        bundleIndex: payload.bundleIndex,
+        proposalId: payload.proposalId,
+        shareIndex: payload.encShare.shareIndex
+    )
+}
+
+private func payloadWorkflowKey(from key: VotingShareDelegationKey) -> SharePayloadWorkflowKey {
+    SharePayloadWorkflowKey(
+        roundId: key.roundId,
+        bundleIndex: key.bundleIndex,
+        proposalId: key.proposalId,
+        shareIndex: key.shareIndex
+    )
+}
 
 func sharePostBody(
     for payload: SharePayload,
@@ -358,102 +383,110 @@ func delegateSharePayloads(
     _ payloads: [SharePayload],
     roundIdHex: String,
     initialServerURLs: [String],
-    postShare: @escaping SharePost,
-    selectTargets: @escaping ShareTargetSelector = {
-        try VotingRustBackend.nextInitialShareTargets(
-            plan: $0,
-            availableServerURLs: $1,
-            acceptedServerURLs: $2,
-            triedServerURLs: $3
-        )
-    }
+    postShare: @escaping SharePost
 ) async throws -> ShareDelegationResult {
-    var availableServers = initialServerURLs
-    var lastError: Error?
-    var results: [DelegatedShareInfo] = []
-
-    for (shareOffset, payload) in payloads.enumerated() {
-        let body = sharePostBody(for: payload, roundIdHex: roundIdHex)
-        guard payload.targetCount > 0, payload.targetCount <= UInt64(Int.max) else {
-            lastError = ShareDelegationError.noReachableVoteServers
-            break
-        }
-        let targetCount = Int(payload.targetCount)
-        let plan = VotingShareSubmissionPlan(
+    let payloadsByKey = Dictionary(uniqueKeysWithValues: payloads.map {
+        (payloadWorkflowKey(from: workflowKey(for: $0, roundIdHex: roundIdHex)), $0)
+    })
+    let sharePlans = payloads.map { payload in
+        VotingShareDeliveryPlan(
+            key: workflowKey(for: payload, roundIdHex: roundIdHex),
             submitAt: payload.submitAt,
             targetCount: payload.targetCount,
             targetServers: payload.targetServers
         )
-        var acceptedServers: [String] = []
-        var triedServers = Set<String>()
-
-        while acceptedServers.count < targetCount {
-            let acceptedSnapshot = acceptedServers
-            let triedSnapshot = Array(triedServers)
-            let targets = try selectTargets(
-                plan,
-                availableServers,
-                acceptedSnapshot,
-                triedSnapshot
-            )
-            .filter {
-                availableServers.contains($0)
-                    && !acceptedSnapshot.contains($0)
-                    && !triedServers.contains($0)
-            }
-            guard !targets.isEmpty else { break }
-
-            triedServers.formUnion(targets)
-            var failedServers = Set<String>()
-
-            await withTaskGroup(of: (String, Bool).self) { group in
-                for server in targets {
-                    group.addTask {
-                        do {
-                            try await postShare(server, body)
-                            return (server, true)
-                        } catch {
-                            return (server, false)
-                        }
-                    }
-                }
-
-                for await (server, ok) in group {
-                    if ok {
-                        acceptedServers.append(server)
-                    } else {
-                        logger.warning("Share \(shareOffset) failed on \(server, privacy: .public)")
-                        failedServers.insert(server)
-                    }
-                }
-            }
-
-            if !failedServers.isEmpty {
-                availableServers.removeAll { failedServers.contains($0) }
-            }
-        }
-
-        if acceptedServers.isEmpty {
-            logger.warning("Share \(shareOffset) failed on all configured vote servers")
-            lastError = ShareDelegationError.noReachableVoteServers
-            break
-        }
-
-        results.append(DelegatedShareInfo(
-            shareIndex: payload.encShare.shareIndex,
-            proposalId: payload.proposalId,
-            acceptedByServers: acceptedServers
-        ))
     }
 
-    if let lastError {
-        throw lastError
-    }
-
-    return ShareDelegationResult(
-        delegatedShares: results,
-        remainingServerURLs: availableServers
+    var results: [DelegatedShareInfo] = []
+    var response = try VotingRustBackend.startShareDeliveryWorkflow(
+        shares: sharePlans,
+        availableServerURLs: initialServerURLs
     )
+    var remainingServerURLs = response.deliveryState?.availableServerURLs ?? initialServerURLs
+
+    while true {
+        var postActions: [VotingShareWorkflowAction] = []
+        for action in response.actions {
+            switch action.kind {
+            case .postShare:
+                postActions.append(action)
+            case .recordShareDelegation:
+                guard let key = action.key else {
+                    throw ShareWorkflowApplicationError.unexpectedAction(action.kind)
+                }
+                results.append(DelegatedShareInfo(
+                    shareIndex: key.shareIndex,
+                    proposalId: key.proposalId,
+                    acceptedByServers: action.sentToURLs ?? []
+                ))
+            case .deliveryComplete:
+                return ShareDelegationResult(
+                    delegatedShares: results,
+                    remainingServerURLs: remainingServerURLs
+                )
+            case .deliveryFailed:
+                logger.warning("Share delivery failed: \(action.reason ?? "no reachable vote servers", privacy: .public)")
+                throw ShareDelegationError.noReachableVoteServers
+            case .fetchShareStatus, .markShareConfirmed, .addSentServers, .startResubmission,
+                 .scheduleWakeup, .resubmissionComplete:
+                throw ShareWorkflowApplicationError.unexpectedAction(action.kind)
+            }
+        }
+
+        guard !postActions.isEmpty else {
+            return ShareDelegationResult(
+                delegatedShares: results,
+                remainingServerURLs: remainingServerURLs
+            )
+        }
+
+        let postRequests = try postActions.map { action in
+            guard let key = action.key,
+                  let serverURL = action.serverURL,
+                  let payload = payloadsByKey[payloadWorkflowKey(from: key)]
+            else {
+                throw ShareWorkflowApplicationError.missingPayload
+            }
+            return (key, serverURL, payload, action.submitAt)
+        }
+
+        let postResults = await withTaskGroup(of: VotingSharePostResult.self) { group in
+            for request in postRequests {
+                group.addTask {
+                    let body = sharePostBody(
+                        for: request.2,
+                        roundIdHex: roundIdHex,
+                        submitAt: request.3
+                    )
+                    do {
+                        try await postShare(request.1, body)
+                        return VotingSharePostResult(key: request.0, serverURL: request.1, accepted: true)
+                    } catch {
+                        logger.warning(
+                            "Share \(request.0.shareIndex) failed on \(request.1, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                        )
+                        return VotingSharePostResult(key: request.0, serverURL: request.1, accepted: false)
+                    }
+                }
+            }
+
+            var collected: [VotingSharePostResult] = []
+            for await result in group {
+                collected.append(result)
+            }
+            return collected
+        }
+        guard let deliveryState = response.deliveryState else {
+            throw ShareWorkflowApplicationError.missingDeliveryState
+        }
+        response = try VotingRustBackend.applyShareDeliveryWorkflowResults(
+            state: deliveryState,
+            results: postResults
+        )
+        if let availableServerURLs = response.deliveryState?.availableServerURLs {
+            remainingServerURLs = availableServerURLs
+        }
+    }
 }
 
 func resubmitSharePayload(
@@ -461,33 +494,55 @@ func resubmitSharePayload(
     roundIdHex: String,
     configuredServerURLs: [String],
     sentToURLs: [String],
-    postShare: @escaping SharePost,
-    orderServers: @escaping ShareResubmissionOrder = { configuredServerURLs, sentToURLs in
-        try VotingRustBackend.resubmissionServerOrder(
-            configuredServerURLs: configuredServerURLs,
-            sentToURLs: sentToURLs
-        )
-    }
+    postShare: @escaping SharePost
 ) async throws -> [String] {
-    let body = sharePostBody(for: payload, roundIdHex: roundIdHex, submitAt: 0)
-    let configuredSet = Set(configuredServerURLs)
-    var seen = Set<String>()
-    let serverOrder = try orderServers(configuredServerURLs, sentToURLs).filter { server in
-        configuredSet.contains(server) && seen.insert(server).inserted
-    }
+    let key = workflowKey(for: payload, roundIdHex: roundIdHex)
+    var response = try VotingRustBackend.startShareResubmissionWorkflow(
+        key: key,
+        configuredServerURLs: configuredServerURLs,
+        sentToURLs: sentToURLs
+    )
+    var acceptedServers: [String] = []
 
-    for server in serverOrder {
-        do {
-            try await postShare(server, body)
-            return [server]
-        } catch {
-            logger.warning(
-                "Share resubmission failed on \(server, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
+    while true {
+        for action in response.actions {
+            switch action.kind {
+            case .postShare:
+                guard let serverURL = action.serverURL else {
+                    throw ShareWorkflowApplicationError.unexpectedAction(action.kind)
+                }
+                let body = sharePostBody(for: payload, roundIdHex: roundIdHex, submitAt: action.submitAt)
+                let accepted: Bool
+                do {
+                    try await postShare(serverURL, body)
+                    accepted = true
+                } catch {
+                    logger.warning(
+                        "Share resubmission failed on \(serverURL, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                    accepted = false
+                }
+                guard let resubmissionState = response.resubmissionState else {
+                    throw ShareWorkflowApplicationError.missingResubmissionState
+                }
+                response = try VotingRustBackend.applyShareResubmissionWorkflowResult(
+                    state: resubmissionState,
+                    result: VotingSharePostResult(key: key, serverURL: serverURL, accepted: accepted)
+                )
+            case .addSentServers:
+                acceptedServers.append(contentsOf: action.serverURLs ?? [])
+            case .resubmissionComplete:
+                return acceptedServers
+            case .deliveryComplete, .deliveryFailed, .fetchShareStatus, .markShareConfirmed,
+                 .recordShareDelegation, .scheduleWakeup, .startResubmission:
+                throw ShareWorkflowApplicationError.unexpectedAction(action.kind)
+            }
+        }
+
+        if response.actions.isEmpty {
+            return acceptedServers
         }
     }
-
-    return []
 }
 
 /// Parse a broadcast TX response into TxResult. Throws on non-zero code.

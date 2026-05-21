@@ -15,8 +15,7 @@ struct ShareDelegationKey: Hashable, Sendable {
 }
 
 struct ShareRecoveryPollResult: Equatable, Sendable {
-    let confirmedShares: [ShareDelegationKey]
-    let resubmissionShares: [VotingShareDelegation]
+    let statusResults: [VotingShareStatusResult]
     let queriedCount: Int
 }
 
@@ -28,64 +27,64 @@ private func shareDelegationKey(for share: VotingShareDelegation) -> ShareDelega
     )
 }
 
-private func localShareDelegationKeys(
-    from keys: [VotingShareDelegationKey],
-    roundId: String
-) -> Set<ShareDelegationKey> {
-    Set(keys.compactMap { key in
-        guard key.roundId == roundId else { return nil }
-        return ShareDelegationKey(
-            bundleIndex: key.bundleIndex,
-            proposalId: key.proposalId,
-            shareIndex: key.shareIndex
-        )
-    })
+private func shareDelegationKey(for key: VotingShareDelegationKey) -> ShareDelegationKey {
+    ShareDelegationKey(
+        bundleIndex: key.bundleIndex,
+        proposalId: key.proposalId,
+        shareIndex: key.shareIndex
+    )
 }
 
-func pollShareStatusesForRecovery(
-    readyShares: [VotingShareDelegation],
-    overdueShares: Set<ShareDelegationKey>,
-    roundId: String,
+func executeShareRecoveryStatusFetches(
+    actions: [VotingShareWorkflowAction],
     fetchShareStatus: @escaping @Sendable (
         _ helperBaseURL: String,
         _ roundIdHex: String,
         _ nullifierHex: String
     ) async throws -> ShareConfirmationResult
 ) async -> ShareRecoveryPollResult {
-    var confirmedShares: [ShareDelegationKey] = []
-    var resubmissionShares: [VotingShareDelegation] = []
+    let fetchActions = actions.filter { $0.kind == .fetchShareStatus }
+    var statusResults: [VotingShareStatusResult] = []
+    var confirmedKeys = Set<ShareDelegationKey>()
     var queriedCount = 0
 
-    for share in readyShares {
-        let nullifierHex = share.nullifier
-        var confirmed = false
+    for action in fetchActions {
+        guard let key = action.key,
+              let serverURL = action.serverURL,
+              let roundId = action.roundId,
+              let nullifier = action.nullifier
+        else { continue }
 
-        for helperURL in share.sentToURLs {
-            queriedCount += 1
-            do {
-                let result = try await fetchShareStatus(helperURL, roundId, nullifierHex)
-                if result == .confirmed {
-                    confirmedShares.append(ShareDelegationKey(
-                        bundleIndex: share.bundleIndex,
-                        proposalId: share.proposalId,
-                        shareIndex: share.shareIndex
-                    ))
-                    confirmed = true
-                    break
-                }
-            } catch {
-                votingLogger.warning("Share status check failed for helper \(helperURL), share \(share.shareIndex): \(error)")
-            }
+        let localKey = shareDelegationKey(for: key)
+        if confirmedKeys.contains(localKey) {
+            continue
         }
 
-        if !confirmed && overdueShares.contains(shareDelegationKey(for: share)) {
-            resubmissionShares.append(share)
+        queriedCount += 1
+        let nullifierHex = Data(nullifier).hexString
+        do {
+            let result = try await fetchShareStatus(serverURL, roundId, nullifierHex)
+            let confirmed = result == .confirmed
+            statusResults.append(VotingShareStatusResult(
+                key: key,
+                serverURL: serverURL,
+                confirmed: confirmed
+            ))
+            if confirmed {
+                confirmedKeys.insert(localKey)
+            }
+        } catch {
+            votingLogger.warning("Share status check failed for helper \(serverURL), share \(key.shareIndex): \(error)")
+            statusResults.append(VotingShareStatusResult(
+                key: key,
+                serverURL: serverURL,
+                confirmed: false
+            ))
         }
     }
 
     return ShareRecoveryPollResult(
-        confirmedShares: confirmedShares,
-        resubmissionShares: resubmissionShares,
+        statusResults: statusResults,
         queriedCount: queriedCount
     )
 }
@@ -301,9 +300,9 @@ extension Voting {
                 }
                 var resubmitQueue: [ResubmitCandidate] = []
 
-                let recoveryPlan: VotingShareRecoveryActionPlan
+                let recoveryResponse: VotingShareWorkflowResponse
                 do {
-                    recoveryPlan = try VotingRustBackend.planShareRecoveryActions(
+                    recoveryResponse = try VotingRustBackend.planShareRecoveryWorkflow(
                         shares: freshDelegations,
                         nowSeconds: now,
                         voteEndTimeSeconds: voteEndTime
@@ -314,47 +313,66 @@ extension Voting {
                     await send(.pollShareStatus)
                     return
                 }
-                let readyKeys = localShareDelegationKeys(
-                    from: recoveryPlan.readyForStatusCheck,
-                    roundId: roundId
-                )
-                let overdueKeys = localShareDelegationKeys(
-                    from: recoveryPlan.overdueForResubmission,
-                    roundId: roundId
-                )
-                let readyShares = unconfirmed.filter { readyKeys.contains(shareDelegationKey(for: $0)) }
-                let futureCount = unconfirmed.count - readyShares.count
+                let fetchActions = recoveryResponse.actions.filter { $0.kind == .fetchShareStatus }
+                let readyKeys = Set(fetchActions.compactMap { $0.key }.map(shareDelegationKey(for:)))
+                let futureCount = unconfirmed.count - readyKeys.count
 
-                votingLogger.debug("[SharePoll] ready=\(readyShares.count) future=\(futureCount)")
+                votingLogger.debug("[SharePoll] ready=\(readyKeys.count) future=\(futureCount)")
 
-                let pollResult = await pollShareStatusesForRecovery(
-                    readyShares: readyShares,
-                    overdueShares: overdueKeys,
-                    roundId: roundId,
+                let pollResult = await executeShareRecoveryStatusFetches(
+                    actions: recoveryResponse.actions,
                     fetchShareStatus: votingAPI.fetchShareStatus
                 )
 
+                let statusResponse: VotingShareWorkflowResponse
+                do {
+                    statusResponse = try VotingRustBackend.applyShareRecoveryStatusResults(
+                        shares: freshDelegations,
+                        statusResults: pollResult.statusResults,
+                        nowSeconds: now,
+                        voteEndTimeSeconds: voteEndTime
+                    )
+                } catch {
+                    votingLogger.warning("Failed to apply share recovery status results: \(error.localizedDescription)")
+                    try await Task.sleep(for: .seconds(shareTrackingPolicyErrorRetrySeconds))
+                    await send(.pollShareStatus)
+                    return
+                }
+
+                let sharesByKey = Dictionary(uniqueKeysWithValues: freshDelegations.map {
+                    (shareDelegationKey(for: $0), $0)
+                })
                 var newlyConfirmed = 0
-                for key in pollResult.confirmedShares {
-                    do {
-                        try await votingCrypto.markShareConfirmed(
-                            roundId, key.bundleIndex, key.proposalId, key.shareIndex
-                        )
-                        newlyConfirmed += 1
-                    } catch {
-                        votingLogger.warning("Failed to mark share confirmed for proposal \(key.proposalId), share \(key.shareIndex): \(error)")
+                for action in statusResponse.actions {
+                    switch action.kind {
+                    case .markShareConfirmed:
+                        guard let key = action.key else { continue }
+                        do {
+                            try await votingCrypto.markShareConfirmed(
+                                roundId, key.bundleIndex, key.proposalId, key.shareIndex
+                            )
+                            newlyConfirmed += 1
+                        } catch {
+                            votingLogger.warning("Failed to mark share confirmed for proposal \(key.proposalId), share \(key.shareIndex): \(error)")
+                        }
+                    case .startResubmission:
+                        guard let key = action.key,
+                              let share = sharesByKey[shareDelegationKey(for: key)]
+                        else { continue }
+                        resubmitQueue.append(ResubmitCandidate(
+                            share: share,
+                            proposalId: key.proposalId,
+                            bundleIndex: key.bundleIndex
+                        ))
+                    case .scheduleWakeup:
+                        break
+                    case .postShare, .fetchShareStatus, .recordShareDelegation, .addSentServers,
+                         .deliveryComplete, .deliveryFailed, .resubmissionComplete:
+                        votingLogger.warning("Unexpected share recovery workflow action: \(action.kind.rawValue)")
                     }
                 }
 
-                resubmitQueue = pollResult.resubmissionShares.map {
-                    ResubmitCandidate(
-                        share: $0,
-                        proposalId: $0.proposalId,
-                        bundleIndex: $0.bundleIndex
-                    )
-                }
-
-                if !readyShares.isEmpty {
+                if !fetchActions.isEmpty {
                     votingLogger.debug("[SharePoll] queried=\(pollResult.queriedCount) newlyConfirmed=\(newlyConfirmed)")
                 }
 
@@ -376,7 +394,7 @@ extension Voting {
 
                     do {
                         var payloads = try await votingCrypto.buildSharePayloads(
-                            savedBundle.encShares, savedBundle, choice, numOptions,
+                            savedBundle.encShares, savedBundle, bundleIndex, choice, numOptions,
                             vcTreePosition, singleShare
                         )
                         // Set submit_at to 0 (immediate) for resubmission
@@ -426,10 +444,11 @@ extension Voting {
                     return
                 }
 
-                let refreshedRecoveryPlan: VotingShareRecoveryActionPlan
+                let refreshedRecoveryResponse: VotingShareWorkflowResponse
                 do {
-                    refreshedRecoveryPlan = try VotingRustBackend.planShareRecoveryActions(
+                    refreshedRecoveryResponse = try VotingRustBackend.applyShareRecoveryStatusResults(
                         shares: updatedDelegations,
+                        statusResults: [],
                         nowSeconds: refreshedNow,
                         voteEndTimeSeconds: voteEndTime
                     )
@@ -439,7 +458,11 @@ extension Voting {
                     await send(.pollShareStatus)
                     return
                 }
-                guard let actualSleep = refreshedRecoveryPlan.nextDelaySeconds else {
+                let actualSleep = refreshedRecoveryResponse.actions.compactMap { action -> UInt64? in
+                    guard action.kind == .scheduleWakeup else { return nil }
+                    return action.delaySeconds
+                }.first
+                guard let actualSleep = actualSleep else {
                     votingLogger.debug("[SharePoll] all confirmed, stopping poll")
                     return
                 }

@@ -9464,7 +9464,7 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/valargroup/zcash-swift-wallet-sdk.git";
 			requirement = {
-				branch = "adam/update-zcash-voting-0.9.1-policy";
+				branch = "adam/share-workflow-runtime-ffi";
 				kind = branch;
 			};
 		};

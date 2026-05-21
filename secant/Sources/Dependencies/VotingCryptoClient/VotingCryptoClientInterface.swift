@@ -143,6 +143,7 @@ struct VotingCryptoClient {
     var buildSharePayloads: @Sendable (
         _ encShares: [EncryptedShare],
         _ commitment: VoteCommitmentBundle,
+        _ bundleIndex: UInt32,
         _ voteDecision: VoteChoice,
         _ numOptions: UInt32,
         _ vcTreePosition: UInt64,

@@ -513,6 +513,7 @@ struct VoteCommitmentBundle: Equatable, Sendable, Codable {
 
 /// Payload sent to helper servers for share delegation (not directly to chain).
 struct SharePayload: Equatable, Sendable {
+    let bundleIndex: UInt32
     let sharesHash: Data
     let proposalId: UInt32
     let voteDecision: UInt32
@@ -532,11 +533,13 @@ struct SharePayload: Equatable, Sendable {
     var targetServers: [String]
 
     init(
+        bundleIndex: UInt32 = 0,
         sharesHash: Data, proposalId: UInt32, voteDecision: UInt32, encShare: EncryptedShare,
         treePosition: UInt64, allEncShares: [EncryptedShare] = [], shareComms: [Data] = [],
         primaryBlind: Data = Data(), submitAt: UInt64 = 0, targetCount: UInt64 = 0,
         targetServers: [String] = []
     ) {
+        self.bundleIndex = bundleIndex
         self.sharesHash = sharesHash
         self.proposalId = proposalId
         self.voteDecision = voteDecision

@@ -492,8 +492,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/valargroup/zcash-swift-wallet-sdk.git",
       "state" : {
-        "branch" : "adam/update-zcash-voting-0.9.1-policy",
-        "revision" : "15e357f5602315e7b1dccea242440628dc511253"
+        "branch" : "adam/share-workflow-runtime-ffi",
+        "revision" : "6dd8a75d49507ddf253073dc58ee0fff7e801d59"
       }
     }
   ],

@@ -218,7 +218,7 @@ extension Voting {
                                             )
                                             await send(.voteSubmissionStepUpdated(.sendingShares))
                                             var payloads = try await votingCrypto.buildSharePayloads(
-                                                savedBundle.encShares, savedBundle, choice, numOptions, vcIdx, singleShare
+                                                savedBundle.encShares, savedBundle, bundleIndex, choice, numOptions, vcIdx, singleShare
                                             )
                                             try await Self.applyShareSubmissionPolicy(
                                                 to: &payloads,
@@ -319,7 +319,7 @@ extension Voting {
 
                             await send(.voteSubmissionStepUpdated(.sendingShares))
                             var payloads = try await votingCrypto.buildSharePayloads(
-                                builtBundle.encShares, builtBundle, choice, numOptions, vcIdx, singleShare
+                                builtBundle.encShares, builtBundle, bundleIndex, choice, numOptions, vcIdx, singleShare
                             )
                             try await Self.applyShareSubmissionPolicy(
                                 to: &payloads,

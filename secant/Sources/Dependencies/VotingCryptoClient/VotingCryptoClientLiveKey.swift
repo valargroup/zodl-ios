@@ -395,7 +395,7 @@ extension VotingCryptoClient: DependencyKey {
                     }
                 }
             },
-            buildSharePayloads: { encShares, commitment, voteDecision, numOptions, vcTreePosition, singleShare in
+            buildSharePayloads: { encShares, commitment, bundleIndex, voteDecision, numOptions, vcTreePosition, singleShare in
                 let backend = try await dbActor.backend()
                 let sdkShares = encShares.map {
                     VotingWireEncryptedShare(
@@ -450,6 +450,7 @@ extension VotingCryptoClient: DependencyKey {
                     }
                     let shareComms = payload.shareComms.map { Data($0) }
                     return SharePayload(
+                        bundleIndex: bundleIndex,
                         sharesHash: Data(payload.sharesHash),
                         proposalId: payload.proposalId,
                         voteDecision: payload.voteDecision,
