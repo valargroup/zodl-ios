@@ -1,67 +1,43 @@
 import XCTest
-import Foundation
-@testable import VotingModels
+import ZcashLightClientKit
 
 final class VotingSessionTests: XCTestCase {
-    func testLastMomentBufferUsesFortyPercentForShortRounds() throws {
-        let ceremonyStart = Date(timeIntervalSince1970: 1_000)
-        let voteEndTime = ceremonyStart.addingTimeInterval(10 * 60)
-        let session = makeSession(ceremonyStart: ceremonyStart, voteEndTime: voteEndTime)
+    func testShareModeUsesFortyPercentForShortRounds() throws {
+        let plan = try VotingRustBackend().planShareMode(now: 1_000, ceremonyStart: 1_000, voteEnd: 1_600)
 
-        XCTAssertEqual(try XCTUnwrap(session.lastMomentBuffer), 4 * 60, accuracy: 0.001)
+        XCTAssertFalse(plan.singleShare)
+        XCTAssertEqual(plan.lastMomentBufferSeconds, 240)
+        XCTAssertEqual(plan.submitAtDelaySeconds, 360)
     }
 
-    func testLastMomentBufferCapsAtSixHoursForLongRounds() throws {
-        let ceremonyStart = Date(timeIntervalSince1970: 1_000)
-        let voteEndTime = ceremonyStart.addingTimeInterval(24 * 60 * 60)
-        let session = makeSession(ceremonyStart: ceremonyStart, voteEndTime: voteEndTime)
+    func testShareModeCapsLastMomentAtSixHoursForLongRounds() throws {
+        let plan = try VotingRustBackend().planShareMode(now: 1_000, ceremonyStart: 1_000, voteEnd: 87_400)
 
-        XCTAssertEqual(try XCTUnwrap(session.lastMomentBuffer), 6 * 60 * 60, accuracy: 0.001)
+        XCTAssertFalse(plan.singleShare)
+        XCTAssertEqual(plan.lastMomentBufferSeconds, 6 * 60 * 60)
     }
 
-    func testLastMomentBufferIsNilForInvalidRoundTimes() {
-        let ceremonyStart = Date(timeIntervalSince1970: 1_000)
-        let voteEndTime = ceremonyStart
-        let session = makeSession(ceremonyStart: ceremonyStart, voteEndTime: voteEndTime)
+    func testShareModeFallsBackForInvalidRoundTimes() throws {
+        let plan = try VotingRustBackend().planShareMode(now: 1_000, ceremonyStart: 2_000, voteEnd: 2_000)
 
-        XCTAssertNil(session.lastMomentBuffer)
+        XCTAssertFalse(plan.singleShare)
+        XCTAssertNil(plan.lastMomentBufferSeconds)
+        XCTAssertNil(plan.submitAtDelaySeconds)
     }
 
-    func testIsLastMomentForShortRoundWithinBuffer() {
-        let now = Date()
-        let voteEndTime = now.addingTimeInterval(3 * 60)
-        let ceremonyStart = voteEndTime.addingTimeInterval(-10 * 60)
-        let session = makeSession(ceremonyStart: ceremonyStart, voteEndTime: voteEndTime)
+    func testShareModeUsesSingleShareInsideLastMomentWindow() throws {
+        let plan = try VotingRustBackend().planShareMode(now: 1_361, ceremonyStart: 1_000, voteEnd: 1_600)
 
-        XCTAssertTrue(session.isLastMoment)
+        XCTAssertTrue(plan.singleShare)
+        XCTAssertEqual(plan.lastMomentBufferSeconds, 240)
+        XCTAssertNil(plan.submitAtDelaySeconds)
     }
 
-    func testIsLastMomentForShortRoundBeforeBuffer() {
-        let now = Date()
-        let voteEndTime = now.addingTimeInterval(5 * 60)
-        let ceremonyStart = voteEndTime.addingTimeInterval(-10 * 60)
-        let session = makeSession(ceremonyStart: ceremonyStart, voteEndTime: voteEndTime)
+    func testShareModeUsesDelayedSharesBeforeLastMomentWindow() throws {
+        let plan = try VotingRustBackend().planShareMode(now: 1_359, ceremonyStart: 1_000, voteEnd: 1_600)
 
-        XCTAssertFalse(session.isLastMoment)
-    }
-
-    private func makeSession(ceremonyStart: Date, voteEndTime: Date) -> VotingSession {
-        VotingSession(
-            voteRoundId: Data(repeating: 0xAA, count: 32),
-            snapshotHeight: 1,
-            snapshotBlockhash: Data(repeating: 0x01, count: 32),
-            proposalsHash: Data(repeating: 0x02, count: 32),
-            voteEndTime: voteEndTime,
-            ceremonyStart: ceremonyStart,
-            eaPK: Data(repeating: 0x03, count: 32),
-            vkZkp1: Data(repeating: 0x04, count: 32),
-            vkZkp2: Data(repeating: 0x05, count: 32),
-            vkZkp3: Data(repeating: 0x06, count: 32),
-            ncRoot: Data(repeating: 0x07, count: 32),
-            nullifierIMTRoot: Data(repeating: 0x08, count: 32),
-            creator: "creator",
-            proposals: [],
-            status: .active
-        )
+        XCTAssertFalse(plan.singleShare)
+        XCTAssertEqual(plan.lastMomentBufferSeconds, 240)
+        XCTAssertEqual(plan.submitAtDelaySeconds, 1)
     }
 }

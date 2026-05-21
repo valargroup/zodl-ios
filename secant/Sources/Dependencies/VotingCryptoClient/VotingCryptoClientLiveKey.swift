@@ -648,6 +648,23 @@ extension VotingCryptoClient: DependencyKey {
                 let backend = try await dbActor.backend()
                 try backend.clearRecoveryState(roundId: roundId)
             },
+            planShareMode: { now, ceremonyStart, voteEnd in
+                let backend = try await dbActor.backend()
+                return try backend.planShareMode(now: now, ceremonyStart: ceremonyStart, voteEnd: voteEnd)
+            },
+            planShareSubmitTimes: { shareCount, now, voteEnd, mode in
+                let backend = try await dbActor.backend()
+                return try backend.planShareSubmitTimes(
+                    shareCount: shareCount,
+                    now: now,
+                    voteEnd: voteEnd,
+                    mode: mode
+                )
+            },
+            planShareTracking: { delegations, now, voteEnd in
+                let backend = try await dbActor.backend()
+                return try backend.planShareTracking(delegations: delegations, now: now, voteEnd: voteEnd)
+            },
             computeShareNullifier: { voteCommitment, shareIndex, primaryBlind in
                 try VotingRustBackend.computeShareNullifier(
                     voteCommitment: voteCommitment,

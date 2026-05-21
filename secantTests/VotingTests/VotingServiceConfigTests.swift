@@ -620,9 +620,8 @@ final class ShareRecoveryPollingTests: XCTestCase {
 
         let result = await pollShareStatusesForRecovery(
             readyShares: [share],
+            overdueKeys: [],
             roundId: "aabb",
-            now: 200,
-            voteEndTime: 1_000,
             fetchShareStatus: { helperURL, _, _ in
                 await recorder.record(helperURL)
                 return helperURL == "https://helper-3.example.com" ? .confirmed : .pending
@@ -650,9 +649,8 @@ final class ShareRecoveryPollingTests: XCTestCase {
 
         let result = await pollShareStatusesForRecovery(
             readyShares: [share],
+            overdueKeys: [],
             roundId: "aabb",
-            now: 200,
-            voteEndTime: 1_000,
             fetchShareStatus: { helperURL, _, _ in
                 await recorder.record(helperURL)
                 if helperURL == "https://helper-3.example.com" {
@@ -679,11 +677,12 @@ final class ShareRecoveryPollingTests: XCTestCase {
             submitAt: 0,
             createdAt: 100
         )
+        let backend = VotingRustBackend()
 
-        XCTAssertFalse(isShareReadyForStatusCheck(share, now: 109, checkGrace: 10))
-        XCTAssertTrue(isShareReadyForStatusCheck(share, now: 110, checkGrace: 10))
-        XCTAssertFalse(shouldResubmitShare(share, now: 129, voteEndTime: 200))
-        XCTAssertTrue(shouldResubmitShare(share, now: 130, voteEndTime: 200))
+        XCTAssertTrue(try backend.planShareTracking(delegations: [share], now: 109, voteEnd: 200).readyShareKeys.isEmpty)
+        XCTAssertEqual(try backend.planShareTracking(delegations: [share], now: 110, voteEnd: 200).readyShareKeys.count, 1)
+        XCTAssertTrue(try backend.planShareTracking(delegations: [share], now: 129, voteEnd: 200).overdueShareKeys.isEmpty)
+        XCTAssertEqual(try backend.planShareTracking(delegations: [share], now: 130, voteEnd: 200).overdueShareKeys.count, 1)
     }
 
     func testDelayedSharesUseSubmitAtForReadinessAndResubmission() throws {
@@ -692,11 +691,12 @@ final class ShareRecoveryPollingTests: XCTestCase {
             submitAt: 200,
             createdAt: 100
         )
+        let backend = VotingRustBackend()
 
-        XCTAssertFalse(isShareReadyForStatusCheck(share, now: 209, checkGrace: 10))
-        XCTAssertTrue(isShareReadyForStatusCheck(share, now: 210, checkGrace: 10))
-        XCTAssertFalse(shouldResubmitShare(share, now: 229, voteEndTime: 320))
-        XCTAssertTrue(shouldResubmitShare(share, now: 230, voteEndTime: 320))
+        XCTAssertTrue(try backend.planShareTracking(delegations: [share], now: 209, voteEnd: 320).readyShareKeys.isEmpty)
+        XCTAssertEqual(try backend.planShareTracking(delegations: [share], now: 210, voteEnd: 320).readyShareKeys.count, 1)
+        XCTAssertTrue(try backend.planShareTracking(delegations: [share], now: 229, voteEnd: 320).overdueShareKeys.isEmpty)
+        XCTAssertEqual(try backend.planShareTracking(delegations: [share], now: 230, voteEnd: 320).overdueShareKeys.count, 1)
     }
 }
 
@@ -1158,7 +1158,8 @@ final class VotingSubmissionPostFallbackTests: XCTestCase {
             retryDelay: .zero
         )
 
-        XCTAssertEqual(await attempts.value(), 3)
+        let attemptCount = await attempts.value()
+        XCTAssertEqual(attemptCount, 3)
         XCTAssertEqual(result.remainingServerURLs, ["https://vote.example.com"])
     }
 
@@ -1182,7 +1183,8 @@ final class VotingSubmissionPostFallbackTests: XCTestCase {
         } catch {
             XCTAssertTrue(error is SharePostFailure)
         }
-        XCTAssertEqual(await attempts.value(), 1)
+        let attemptCount = await attempts.value()
+        XCTAssertEqual(attemptCount, 1)
     }
 
     func testFailureInFirstProposalRemovesHelperForSecondProposalInSameSubmission() async {
@@ -1427,7 +1429,7 @@ final class VotingSubmissionPostFallbackTests: XCTestCase {
         )
     }
 
-    private static func makeDelegationRegistration() -> DelegationRegistration {
+    nonisolated private static func makeDelegationRegistration() -> DelegationRegistration {
         DelegationRegistration(
             rk: Data(repeating: 0x01, count: 32),
             spendAuthSig: Data(repeating: 0x02, count: 64),
@@ -1441,7 +1443,7 @@ final class VotingSubmissionPostFallbackTests: XCTestCase {
         )
     }
 
-    private static func makeDelegationConfirmation(position: UInt32) -> TxConfirmation {
+    nonisolated private static func makeDelegationConfirmation(position: UInt32) -> TxConfirmation {
         TxConfirmation(
             height: 1,
             code: 0,

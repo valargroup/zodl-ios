@@ -490,9 +490,10 @@
     {
       "identity" : "zcash-swift-wallet-sdk",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/zcash/zcash-swift-wallet-sdk.git",
+      "location" : "https://github.com/valargroup/zcash-swift-wallet-sdk.git",
       "state" : {
-        "revision" : "909c7c5743f14a211f9f69f97ed08c05b55c2cd5"
+        "branch" : "adam/share-workflow-planner-swift-demo",
+        "revision" : "54bfda2e67cde0f31d5a532b099600e2341ab295"
       }
     }
   ],

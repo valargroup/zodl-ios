@@ -248,6 +248,12 @@ struct VotingCryptoClient {
 
     // --- Share delegation tracking ---
 
+    /// Plan whether this round should use delayed multi-share or immediate single-share submission.
+    var planShareMode: @Sendable (_ now: UInt64, _ ceremonyStart: UInt64, _ voteEnd: UInt64) async throws -> VotingShareModePlan
+    /// Plan per-share helper `submit_at` values using SDK-owned CSPRNG entropy.
+    var planShareSubmitTimes: @Sendable (_ shareCount: Int, _ now: UInt64, _ voteEnd: UInt64, _ mode: VotingShareModePlan) async throws -> [UInt64]
+    /// Plan the next share tracking pass.
+    var planShareTracking: @Sendable (_ delegations: [VotingShareDelegation], _ now: UInt64, _ voteEnd: UInt64) async throws -> VotingShareTrackingPlan
     /// Compute the nullifier for a vote share (pure function, no DB needed).
     var computeShareNullifier: @Sendable (_ voteCommitment: [UInt8], _ shareIndex: UInt32, _ primaryBlind: [UInt8]) throws -> String
     /// Record a share delegation after sending to helper servers.

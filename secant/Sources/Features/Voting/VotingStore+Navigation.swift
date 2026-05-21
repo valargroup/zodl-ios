@@ -6,10 +6,34 @@ import os
 
 // MARK: - Navigation, VotingProposal List/Detail, Share Info, Share Delegation Tracking
 
-struct ShareDelegationKey: Equatable, Sendable {
+struct ShareDelegationKey: Equatable, Hashable, Sendable {
     let bundleIndex: UInt32
     let proposalId: UInt32
     let shareIndex: UInt32
+
+    init(bundleIndex: UInt32, proposalId: UInt32, shareIndex: UInt32) {
+        self.bundleIndex = bundleIndex
+        self.proposalId = proposalId
+        self.shareIndex = shareIndex
+    }
+
+    init(_ key: VotingShareWorkflowKey) {
+        self.init(
+            bundleIndex: key.bundleIndex,
+            proposalId: key.proposalId,
+            shareIndex: key.shareIndex
+        )
+    }
+}
+
+private extension VotingShareDelegation {
+    var delegationKey: ShareDelegationKey {
+        ShareDelegationKey(
+            bundleIndex: bundleIndex,
+            proposalId: proposalId,
+            shareIndex: shareIndex
+        )
+    }
 }
 
 struct ShareRecoveryPollResult: Equatable, Sendable {
@@ -18,36 +42,10 @@ struct ShareRecoveryPollResult: Equatable, Sendable {
     let queriedCount: Int
 }
 
-func shareRecoveryBaseTime(_ share: VotingShareDelegation) -> UInt64 {
-    share.submitAt > 0 ? share.submitAt : share.createdAt
-}
-
-func isShareReadyForStatusCheck(
-    _ share: VotingShareDelegation,
-    now: UInt64,
-    checkGrace: UInt64 = 10
-) -> Bool {
-    now >= shareRecoveryBaseTime(share) + checkGrace
-}
-
-func shouldResubmitShare(
-    _ share: VotingShareDelegation,
-    now: UInt64,
-    voteEndTime: UInt64,
-    resubmitCutoff: UInt64 = 10
-) -> Bool {
-    let baseTime = shareRecoveryBaseTime(share)
-    let remainingWindow = voteEndTime > baseTime ? voteEndTime - baseTime : 0
-    let overdueThreshold: UInt64 = max(30, min(3600, remainingWindow / 4))
-
-    return now >= baseTime + overdueThreshold && voteEndTime > now + resubmitCutoff
-}
-
 func pollShareStatusesForRecovery(
     readyShares: [VotingShareDelegation],
+    overdueKeys: Set<ShareDelegationKey>,
     roundId: String,
-    now: UInt64,
-    voteEndTime: UInt64,
     fetchShareStatus: @escaping @Sendable (
         _ helperBaseURL: String,
         _ roundIdHex: String,
@@ -67,11 +65,7 @@ func pollShareStatusesForRecovery(
             do {
                 let result = try await fetchShareStatus(helperURL, roundId, nullifierHex)
                 if result == .confirmed {
-                    confirmedShares.append(ShareDelegationKey(
-                        bundleIndex: share.bundleIndex,
-                        proposalId: share.proposalId,
-                        shareIndex: share.shareIndex
-                    ))
+                    confirmedShares.append(share.delegationKey)
                     confirmed = true
                     break
                 }
@@ -80,7 +74,7 @@ func pollShareStatusesForRecovery(
             }
         }
 
-        if !confirmed && shouldResubmitShare(share, now: now, voteEndTime: voteEndTime) {
+        if !confirmed && overdueKeys.contains(share.delegationKey) {
             resubmissionShares.append(share)
         }
     }
@@ -283,7 +277,7 @@ extension Voting {
                 roundId = state.votingRound.id,
                 votes = state.votes,
                 proposals = state.votingRound.proposals,
-                singleShare = state.activeSession?.isLastMoment ?? false,
+                ceremonyStartTime = UInt64(state.activeSession?.ceremonyStart.timeIntervalSince1970 ?? 0),
                 voteEndTime = UInt64(state.activeSession?.voteEndTime.timeIntervalSince1970 ?? 0),
                 votingAPI, votingCrypto
             ] send in
@@ -292,6 +286,10 @@ extension Voting {
                 let confirmed = freshDelegations.filter(\.confirmed).count
                 let unconfirmed = freshDelegations.filter { !$0.confirmed }
                 let now = UInt64(Date().timeIntervalSince1970)
+                let shareMode = try await votingCrypto.planShareMode(now, ceremonyStartTime, voteEndTime)
+                let trackingPlan = try await votingCrypto.planShareTracking(freshDelegations, now, voteEndTime)
+                let readyKeys = Set(trackingPlan.readyShareKeys.map(ShareDelegationKey.init))
+                let overdueKeys = Set(trackingPlan.overdueShareKeys.map(ShareDelegationKey.init))
 
                 votingLogger.debug("[SharePoll] total=\(freshDelegations.count) confirmed=\(confirmed) unconfirmed=\(unconfirmed.count)")
 
@@ -303,21 +301,17 @@ extension Voting {
                 }
                 var resubmitQueue: [ResubmitCandidate] = []
 
-                // Check confirmation after the helper had time to process the share.
-                // Delayed shares use submitAt; immediate shares use createdAt.
-                let checkGrace: UInt64 = 10
                 let readyShares = unconfirmed.filter { share in
-                    isShareReadyForStatusCheck(share, now: now, checkGrace: checkGrace)
+                    readyKeys.contains(share.delegationKey)
                 }
-                let futureCount = unconfirmed.count - readyShares.count
+                let futureCount = trackingPlan.summary.waiting
 
                 votingLogger.debug("[SharePoll] ready=\(readyShares.count) future=\(futureCount)")
 
                 let pollResult = await pollShareStatusesForRecovery(
                     readyShares: readyShares,
+                    overdueKeys: overdueKeys,
                     roundId: roundId,
-                    now: now,
-                    voteEndTime: voteEndTime,
                     fetchShareStatus: votingAPI.fetchShareStatus
                 )
 
@@ -364,7 +358,7 @@ extension Voting {
                     do {
                         var payloads = try await votingCrypto.buildSharePayloads(
                             savedBundle.encShares, savedBundle, choice, numOptions,
-                            vcTreePosition, singleShare
+                            vcTreePosition, shareMode.singleShare
                         )
                         // Set submit_at to 0 (immediate) for resubmission
                         for i in payloads.indices {
@@ -406,27 +400,20 @@ extension Voting {
 
                 // Schedule next poll: sleep until the next share is ready to check.
                 let refreshedNow = UInt64(Date().timeIntervalSince1970)
-                let stillUnconfirmed = updatedDelegations.filter { !$0.confirmed }
+                let refreshedPlan = try await votingCrypto.planShareTracking(
+                    updatedDelegations,
+                    refreshedNow,
+                    voteEndTime
+                )
 
-                // Find the soonest unconfirmed share's check time.
-                let futureCheckTimes = stillUnconfirmed.compactMap { share -> UInt64? in
-                    let readyAt = shareRecoveryBaseTime(share) + checkGrace
-                    return readyAt > refreshedNow ? readyAt : nil
-                }
-
-                let sleepSeconds: UInt64
-                if stillUnconfirmed.isEmpty {
+                guard let sleepSeconds = refreshedPlan.nextDelaySeconds else {
                     votingLogger.debug("[SharePoll] all confirmed, stopping poll")
                     return
-                } else if let soonest = futureCheckTimes.min() {
-                    sleepSeconds = min(soonest - refreshedNow, 30)
-                } else {
-                    sleepSeconds = 15
                 }
 
-                let actualSleep = max(sleepSeconds, 3)
-                votingLogger.debug("[SharePoll] sleeping \(actualSleep)s (stillUnconfirmed=\(stillUnconfirmed.count) futureShares=\(futureCheckTimes.count))")
-                try await Task.sleep(for: .seconds(actualSleep))
+                let stillUnconfirmed = refreshedPlan.summary.total - refreshedPlan.summary.confirmed
+                votingLogger.debug("[SharePoll] sleeping \(sleepSeconds)s (stillUnconfirmed=\(stillUnconfirmed) futureShares=\(refreshedPlan.summary.waiting))")
+                try await Task.sleep(for: .seconds(sleepSeconds))
                 await send(.pollShareStatus)
             } catch: { _, _ in }
             .cancellable(id: cancelShareTrackingId, cancelInFlight: true)
