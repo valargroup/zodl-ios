@@ -184,6 +184,7 @@ extension Voting {
             state.pendingBatchSubmission = false
             state.currentKeystoneBundleIndex = 0
             state.keystoneBundleSignatures = []
+            state.completedKeystoneDelegationBundleIndices = []
             state.pendingVotingPczt = nil
             state.pendingUnsignedDelegationPczt = nil
             state.keystoneSigningStatus = .idle

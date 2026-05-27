@@ -12,6 +12,7 @@ enum VotingFlowError: LocalizedError {
     case missingHotkeyAddress
     case missingPendingUnsignedPczt
     case invalidDelegationSignature
+    case missingKeystoneBundleSignature
     case missingVoteCommitmentBundle
     case delegationTxFailed(code: UInt32, log: String)
     case voteCommitmentTxFailed(code: UInt32, log: String)
@@ -28,6 +29,8 @@ enum VotingFlowError: LocalizedError {
             return String(localizable: .coinVoteStoreErrorMissingPendingUnsignedPczt)
         case .invalidDelegationSignature:
             return String(localizable: .coinVoteStoreErrorInvalidDelegationSignature)
+        case .missingKeystoneBundleSignature:
+            return String(localizable: .coinVoteStoreErrorMissingKeystoneBundleSignature)
         case .missingVoteCommitmentBundle:
             return String(localizable: .coinVoteStoreErrorMissingVoteCommitmentBundle)
         case .delegationTxFailed(let code, let log):
@@ -422,6 +425,7 @@ struct Voting {
 
         /// Per-bundle Keystone signature data collected during the multi-bundle signing loop.
         struct KeystoneBundleSignature: Equatable {
+            let bundleIndex: UInt32
             let sig: Data
             let sighash: Data
             let rk: Data // swiftlint:disable:this identifier_name
@@ -429,6 +433,8 @@ struct Voting {
 
         /// Collected Keystone signatures for each bundle, accumulated during the signing loop.
         var keystoneBundleSignatures: [KeystoneBundleSignature] = []
+        /// Delegation bundles recovered as already submitted on-chain.
+        var completedKeystoneDelegationBundleIndices: Set<UInt32> = []
 
         /// Voting PCZT result for Keystone signing flow (contains metadata + pczt_bytes).
         var pendingVotingPczt: VotingPcztResult?
@@ -502,12 +508,40 @@ struct Voting {
             return String(format: "%.3f", Double(weight) / 100_000_000.0)
         }
 
+        var resolvedKeystoneBundleIndices: Set<UInt32> {
+            var indices = completedKeystoneDelegationBundleIndices
+            indices.formUnion(keystoneBundleSignatures.map(\.bundleIndex))
+            return indices.filter { $0 < bundleCount }
+        }
+
+        var resolvedKeystoneBundleCount: Int {
+            resolvedKeystoneBundleIndices.count
+        }
+
+        var firstIncompleteKeystoneBundleIndex: UInt32? {
+            Self.firstIncompleteKeystoneBundleIndex(
+                bundleCount: bundleCount,
+                resolvedIndices: resolvedKeystoneBundleIndices
+            )
+        }
+
+        static func firstIncompleteKeystoneBundleIndex(
+            bundleCount: UInt32,
+            resolvedIndices: Set<UInt32>
+        ) -> UInt32? {
+            for bundleIndex in 0..<bundleCount where !resolvedIndices.contains(bundleIndex) {
+                return bundleIndex
+            }
+            return nil
+        }
+
         /// Quantized ZEC weight already signed across collected Keystone bundle signatures.
         var signedBundlesZECString: String {
             let bundles = walletNotes.smartBundles().bundles
-            let signedWeight = keystoneBundleSignatures.indices.reduce(UInt64(0)) { total, i in
-                guard i < bundles.count else { return total }
-                let raw = bundles[i].reduce(UInt64(0)) { $0 + $1.value }
+            let signedWeight = resolvedKeystoneBundleIndices.reduce(UInt64(0)) { total, bundleIndex in
+                let idx = Int(bundleIndex)
+                guard idx < bundles.count else { return total }
+                let raw = bundles[idx].reduce(UInt64(0)) { $0 + $1.value }
                 return total + quantizeWeight(raw)
             }
             return String(format: "%.3f", Double(signedWeight) / 100_000_000.0)
@@ -516,9 +550,10 @@ struct Voting {
         /// Quantized ZEC weight in unsigned bundles that would be given up by skipping.
         var skippedBundlesZECString: String {
             let bundles = walletNotes.smartBundles().bundles
-            let signedCount = keystoneBundleSignatures.count
-            let skippedWeight = (signedCount..<bundles.count).reduce(UInt64(0)) { total, i in
-                let raw = bundles[i].reduce(UInt64(0)) { $0 + $1.value }
+            let count = min(Int(bundleCount), bundles.count)
+            let skippedWeight = (0..<count).reduce(UInt64(0)) { total, idx in
+                guard !resolvedKeystoneBundleIndices.contains(UInt32(idx)) else { return total }
+                let raw = bundles[idx].reduce(UInt64(0)) { $0 + $1.value }
                 return total + quantizeWeight(raw)
             }
             return String(format: "%.3f", Double(skippedWeight) / 100_000_000.0)
@@ -773,8 +808,10 @@ struct Voting {
         case keystoneBundleAdvance
         case keystoneBundleSignatureStored(State.KeystoneBundleSignature, bundleIndex: UInt32, bundleCount: UInt32)
         case keystoneAllBundlesSigned
+        case delegationBundlesRecovered(Set<UInt32>)
         case keystoneSignaturesRestored([KeystoneBundleSignatureInfo])
         case keystoneShowSigningScreen
+        case keystoneSignatureRejected(String)
         case skipRemainingKeystoneBundles
         case skipBundlesAlert(PresentationAction<Action>)
         case skipRemainingKeystoneBundlesConfirmed
@@ -968,8 +1005,10 @@ struct Voting {
                 .spendAuthSignatureExtractionFailed,
                 .keystoneBundleSignatureStored,
                 .keystoneAllBundlesSigned,
+                .delegationBundlesRecovered,
                 .keystoneSignaturesRestored,
                 .keystoneShowSigningScreen,
+                .keystoneSignatureRejected,
                 .skipRemainingKeystoneBundles,
                 .skipBundlesAlert,
                 .skipRemainingKeystoneBundlesConfirmed,

@@ -253,7 +253,7 @@ struct DelegationSigningView: View {
     }
 
     private var signedBundleCount: Int {
-        min(store.keystoneBundleSignatures.count, totalBundleCount)
+        min(store.resolvedKeystoneBundleCount, totalBundleCount)
     }
 
     private var currentBundleNumber: Int {

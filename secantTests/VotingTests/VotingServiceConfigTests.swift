@@ -940,7 +940,7 @@ final class VotingSubmissionPostFallbackTests: XCTestCase {
         initialState.pendingBatchSubmission = true
         initialState.currentKeystoneBundleIndex = 1
         initialState.keystoneBundleSignatures = [
-            .init(sig: Data([0x01]), sighash: Data([0x02]), rk: Data([0x03]))
+            .init(bundleIndex: 0, sig: Data([0x01]), sighash: Data([0x02]), rk: Data([0x03]))
         ]
         initialState.keystoneSigningStatus = .preparingRequest
 
@@ -966,7 +966,7 @@ final class VotingSubmissionPostFallbackTests: XCTestCase {
         initialState.pendingBatchSubmission = true
         initialState.currentKeystoneBundleIndex = 1
         initialState.keystoneBundleSignatures = [
-            .init(sig: Data([0x01]), sighash: Data([0x02]), rk: Data([0x03]))
+            .init(bundleIndex: 0, sig: Data([0x01]), sighash: Data([0x02]), rk: Data([0x03]))
         ]
         initialState.keystoneSigningStatus = .awaitingSignature
 
@@ -1015,7 +1015,7 @@ final class VotingSubmissionPostFallbackTests: XCTestCase {
         initialState.currentVoteBundleIndex = 0
         initialState.currentKeystoneBundleIndex = 1
         initialState.keystoneBundleSignatures = [
-            .init(sig: Data([0x01]), sighash: Data([0x02]), rk: Data([0x03]))
+            .init(bundleIndex: 0, sig: Data([0x01]), sighash: Data([0x02]), rk: Data([0x03]))
         ]
 
         let store = TestStore(initialState: initialState) {
@@ -1042,6 +1042,137 @@ final class VotingSubmissionPostFallbackTests: XCTestCase {
             return XCTFail("Expected authorization failure status")
         }
         XCTAssertEqual(error, expectedMessage)
+    }
+
+    func testDuplicateKeystoneSignatureScanDoesNotAdvanceBundle() async {
+        let round = Self.makeVotingRound()
+        var initialState = Self.makeReadySubmissionState(round: round)
+        initialState.isKeystoneUser = true
+        initialState.bundleCount = 2
+        initialState.currentKeystoneBundleIndex = 1
+        initialState.keystoneSigningStatus = .awaitingSignature
+        initialState.pendingVotingPczt = Self.makeVotingPcztResult(actionIndex: 0, rk: Data(repeating: 0x03, count: 32))
+        initialState.pendingUnsignedDelegationPczt = Data([0x10])
+        initialState.keystoneBundleSignatures = [
+            .init(
+                bundleIndex: 0,
+                sig: Data(repeating: 0x01, count: 64),
+                sighash: Data(repeating: 0x02, count: 32),
+                rk: Data(repeating: 0x03, count: 32)
+            )
+        ]
+
+        let signedPczt = Data([0x20])
+        let expectedMessage = String(localizable: .coinVoteDelegationSigningDuplicateSignature("1", "2"))
+        let store = TestStore(initialState: initialState) {
+            Voting()
+        }
+        store.exhaustivity = .off
+        store.dependencies.votingCrypto.extractPcztSighash = { pczt in
+            XCTAssertEqual(pczt, signedPczt)
+            return Data(repeating: 0x02, count: 32)
+        }
+        store.dependencies.votingCrypto.extractSpendAuthSignatureFromSignedPczt = { _, _ in
+            XCTFail("Duplicate scan must not extract a signature")
+            return Data()
+        }
+
+        await store.send(.keystoneScan(.presented(.foundVotingDelegationPCZT(signedPczt))))
+        await store.receive(.keystoneSignatureRejected(expectedMessage))
+
+        XCTAssertEqual(store.state.keystoneSigningStatus, .awaitingSignature)
+        XCTAssertEqual(store.state.currentKeystoneBundleIndex, 1)
+        XCTAssertEqual(store.state.keystoneBundleSignatures.count, 1)
+        XCTAssertTrue(store.state.batchSubmissionStatus == .idle)
+    }
+
+    func testWrongKeystoneSignatureScanDoesNotAdvanceBundle() async {
+        let round = Self.makeVotingRound()
+        var initialState = Self.makeReadySubmissionState(round: round)
+        initialState.isKeystoneUser = true
+        initialState.bundleCount = 2
+        initialState.currentKeystoneBundleIndex = 1
+        initialState.keystoneSigningStatus = .awaitingSignature
+        initialState.pendingVotingPczt = Self.makeVotingPcztResult(actionIndex: 0, rk: Data(repeating: 0x03, count: 32))
+        initialState.pendingUnsignedDelegationPczt = Data([0x10])
+        initialState.keystoneBundleSignatures = [
+            .init(
+                bundleIndex: 0,
+                sig: Data(repeating: 0x01, count: 64),
+                sighash: Data(repeating: 0x02, count: 32),
+                rk: Data(repeating: 0x03, count: 32)
+            )
+        ]
+
+        let signedPczt = Data([0x20])
+        let expectedMessage = String(localizable: .coinVoteDelegationSigningWrongSignature("2", "2"))
+        let store = TestStore(initialState: initialState) {
+            Voting()
+        }
+        store.exhaustivity = .off
+        store.dependencies.votingCrypto.extractPcztSighash = { pczt in
+            XCTAssertEqual(pczt, signedPczt)
+            return Data(repeating: 0x04, count: 32)
+        }
+        store.dependencies.votingCrypto.extractSpendAuthSignatureFromSignedPczt = { _, _ in
+            XCTFail("Mismatched scan must not extract a signature")
+            return Data()
+        }
+
+        await store.send(.keystoneScan(.presented(.foundVotingDelegationPCZT(signedPczt))))
+        await store.receive(.keystoneSignatureRejected(expectedMessage))
+
+        XCTAssertEqual(store.state.keystoneSigningStatus, .awaitingSignature)
+        XCTAssertEqual(store.state.currentKeystoneBundleIndex, 1)
+        XCTAssertEqual(store.state.keystoneBundleSignatures.count, 1)
+        XCTAssertTrue(store.state.batchSubmissionStatus == .idle)
+    }
+
+    func testRecoveredKeystoneBundleResumesAtFirstIncompleteBundle() {
+        let round = Self.makeVotingRound()
+        var state = Self.makeReadySubmissionState(round: round)
+        state.isKeystoneUser = true
+        state.bundleCount = 2
+        state.currentKeystoneBundleIndex = 0
+
+        _ = Voting().reduceDelegation(&state, .delegationBundlesRecovered([0]))
+
+        XCTAssertEqual(state.completedKeystoneDelegationBundleIndices, [0])
+        XCTAssertEqual(state.currentKeystoneBundleIndex, 1)
+    }
+
+    func testKeystoneSignatureStoredAfterRecoveredBundleStartsAuthorization() {
+        let round = Self.makeVotingRound()
+        var state = Self.makeReadySubmissionState(round: round)
+        state.isKeystoneUser = true
+        state.bundleCount = 2
+        state.currentKeystoneBundleIndex = 1
+        state.completedKeystoneDelegationBundleIndices = [0]
+        state.keystoneSigningStatus = .parsingSignature
+        state.pendingVotingPczt = Self.makeVotingPcztResult(actionIndex: 0, rk: Data(repeating: 0x03, count: 32))
+        state.pendingUnsignedDelegationPczt = Data([0x10])
+        state.screenStack = [.pollsList, .proposalList, .delegationSigning]
+
+        _ = Voting().reduceDelegation(
+            &state,
+            .keystoneBundleSignatureStored(
+                .init(
+                    bundleIndex: 1,
+                    sig: Data(repeating: 0x01, count: 64),
+                    sighash: Data(repeating: 0x02, count: 32),
+                    rk: Data(repeating: 0x03, count: 32)
+                ),
+                bundleIndex: 1,
+                bundleCount: 2
+            )
+        )
+
+        XCTAssertEqual(state.keystoneBundleSignatures.map(\.bundleIndex), [1])
+        XCTAssertEqual(state.currentKeystoneBundleIndex, 1)
+        XCTAssertEqual(state.screenStack, [.pollsList, .proposalList])
+        XCTAssertEqual(state.delegationProofStatus, .generating(progress: 0))
+        XCTAssertEqual(state.batchSubmissionStatus, .authorizing)
+        XCTAssertEqual(state.voteSubmissionStep, .authorizingVote)
     }
 
     func testDelegationPipelineRecoversConfirmedCachedTxBeforeSkippingBundle() async throws {
@@ -1438,6 +1569,27 @@ final class VotingSubmissionPostFallbackTests: XCTestCase {
             proof: Data(repeating: 0x07, count: 32),
             voteRoundId: Data([0xAA, 0xBB]),
             sighash: Data(repeating: 0x08, count: 32)
+        )
+    }
+
+    private static func makeVotingPcztResult(actionIndex: UInt32, rk: Data) -> VotingPcztResult {
+        VotingPcztResult(
+            pcztBytes: Data([0x01]),
+            pcztSighash: Data(repeating: 0x05, count: 32),
+            rk: rk,
+            alpha: Data(repeating: 0x02, count: 32),
+            nfSigned: Data(repeating: 0x03, count: 32),
+            cmxNew: Data(repeating: 0x04, count: 32),
+            govNullifiers: [Data(repeating: 0x05, count: 32)],
+            van: Data(repeating: 0x06, count: 32),
+            vanCommRand: Data(repeating: 0x07, count: 32),
+            dummyNullifiers: [Data(repeating: 0x08, count: 32)],
+            rhoSigned: Data(repeating: 0x09, count: 32),
+            paddedCmx: [Data(repeating: 0x0A, count: 32)],
+            rseedSigned: Data(repeating: 0x0B, count: 32),
+            rseedOutput: Data(repeating: 0x0C, count: 32),
+            actionBytes: Data([0x0D]),
+            actionIndex: actionIndex
         )
     }
 

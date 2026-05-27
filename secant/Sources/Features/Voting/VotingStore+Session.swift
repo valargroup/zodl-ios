@@ -541,6 +541,7 @@ extension Voting {
             // Proof status: if DB says proof succeeded and we're not actively generating, sync it
             if dbState.roundState.proofGenerated && state.delegationProofStatus != .complete {
                 state.delegationProofStatus = .complete
+                state.completedKeystoneDelegationBundleIndices = []
             }
             // Sync hotkey address from DB if available
             if let addr = dbState.roundState.hotkeyAddress {
@@ -599,6 +600,7 @@ extension Voting {
             state.pendingBatchSubmission = false
             state.currentKeystoneBundleIndex = 0
             state.keystoneBundleSignatures = []
+            state.completedKeystoneDelegationBundleIndices = []
             state.pendingVotingPczt = nil
             state.pendingUnsignedDelegationPczt = nil
             state.keystoneSigningStatus = .idle
@@ -690,6 +692,7 @@ extension Voting.State {
         pendingBatchSubmission = false
         currentKeystoneBundleIndex = 0
         keystoneBundleSignatures = []
+        completedKeystoneDelegationBundleIndices = []
         pendingVotingPczt = nil
         pendingUnsignedDelegationPczt = nil
         keystoneSigningStatus = .idle
